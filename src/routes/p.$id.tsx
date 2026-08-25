@@ -1,0 +1,262 @@
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, Scissors, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { CropEditor } from "@/components/notebook/crop-editor";
+import { FigureFrame } from "@/components/notebook/figure-frame";
+import { TagEditor } from "@/components/notebook/tag-editor";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import type { ImageBBox } from "@/lib/image/bbox";
+import { cropDataUrl } from "@/lib/image/compress";
+import { formatLoggedDateLong } from "@/lib/problems/dates";
+import { MathText } from "@/lib/problems/math-text";
+import { useProblemStore } from "@/lib/problems/store";
+import {
+  MASTERY_LABEL,
+  SUBJECT_LABEL,
+  type Mastery,
+  type Problem,
+} from "@/lib/problems/types";
+import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/p/$id")({ component: ProblemPage });
+
+function ProblemPage() {
+  const { id } = Route.useParams();
+  const problem = useProblemStore((s) => s.problems.find((p) => p.id === id));
+  const status = useProblemStore((s) => s.status);
+  const loadProblem = useProblemStore((s) => s.loadProblem);
+
+  useEffect(() => {
+    void loadProblem(id);
+  }, [id, loadProblem]);
+
+  if (status !== "ready" && !problem) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <div className="h-8 w-24 animate-pulse rounded-md bg-rule" />
+        <div className="h-64 animate-pulse rounded-xl bg-rule" />
+      </div>
+    );
+  }
+
+  if (!problem) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <p className="font-display text-2xl font-semibold">找不到这道题</p>
+        <Button asChild className="mt-6" variant="outline">
+          <Link to="/">回到本子</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return <ProblemDetail problem={problem} />;
+}
+
+function ProblemDetail({ problem }: { problem: Problem }) {
+  const navigate = useNavigate();
+  const updateProblem = useProblemStore((s) => s.updateProblem);
+  const deleteProblem = useProblemStore((s) => s.deleteProblem);
+  const problems = useProblemStore((s) => s.problems);
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of problems) for (const tag of item.tags) set.add(tag);
+    return [...set];
+  }, [problems]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [notes, setNotes] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropBox, setCropBox] = useState<ImageBBox>({ x: 0.38, y: 0.26, w: 0.58, h: 0.6 });
+  const cropBoxRef = useRef(cropBox);
+  const [cropping, setCropping] = useState(false);
+  const noteValue = notes ?? problem.notes;
+
+  async function applyCrop() {
+    if (!problem.sourceImage) return;
+    setCropping(true);
+    try {
+      const cropped = await cropDataUrl(problem.sourceImage, cropBoxRef.current, 0);
+      const current = problem.figures[0];
+      await updateProblem(problem.id, {
+        figures: [
+          {
+            id: current?.id ?? crypto.randomUUID(),
+            title: current?.title ?? "图形",
+            caption: current?.caption ?? "",
+            svg: "",
+            image: cropped,
+          },
+        ],
+      });
+      setCropOpen(false);
+      toast.success("已用框选原图");
+    } finally {
+      setCropping(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <div className="flex items-center justify-between gap-3">
+        <Button asChild variant="ghost" size="sm">
+          <Link to="/">
+            <ArrowLeft className="size-4" />
+            本子
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+          <Trash2 className="size-4" />
+          删除
+        </Button>
+      </div>
+
+      <article className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
+        <div className="flex flex-wrap items-center gap-2 px-5 pt-5 sm:px-6">
+          <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
+          <Badge variant={problem.mastery === "mastered" ? "mastered" : "outline"}>
+            {MASTERY_LABEL[problem.mastery]}
+          </Badge>
+        </div>
+        <div className="px-5 py-5 sm:px-6">
+          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{problem.title}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">录入 {formatLoggedDateLong(problem.createdAt)}</p>
+          <div className="mt-4">
+            <MathText text={problem.stem} className="text-lg" />
+          </div>
+          <div className="mt-5">
+            <p className="mb-2 text-xs tracking-wider text-muted-foreground">标签</p>
+            <TagEditor
+              tags={problem.tags}
+              suggestions={allTags}
+              onChange={(tags) => void updateProblem(problem.id, { tags })}
+            />
+          </div>
+        </div>
+        {problem.figures.map((fig) => (
+          <div key={fig.id} className="border-t border-border">
+            <FigureFrame svg={fig.svg} image={fig.image} caption={fig.caption || fig.title} />
+          </div>
+        ))}
+        {problem.sourceImage ? (
+          <div className="flex justify-end border-t border-border px-5 py-3">
+            <Button variant="ghost" size="sm" onClick={() => setCropOpen(true)}>
+              <Scissors className="size-4" />
+              框选图形
+            </Button>
+          </div>
+        ) : null}
+      </article>
+
+      <Panel title="答案">
+        <MathText text={problem.correctAnswer || "（未填写）"} />
+      </Panel>
+
+      <Panel title="解析">
+        <MathText text={problem.analysis || "（未填写）"} />
+      </Panel>
+
+      <Panel title="掌握程度">
+        <div className="flex flex-wrap gap-2">
+          {(["new", "reviewing", "mastered"] as Mastery[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => void updateProblem(problem.id, { mastery: m })}
+              className={cn(
+                "h-10 rounded-full px-4 text-sm transition-colors",
+                problem.mastery === m ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground",
+              )}
+            >
+              {MASTERY_LABEL[m]}
+            </button>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="笔记">
+        <Textarea
+          value={noteValue}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            if (notes !== null && notes !== problem.notes) {
+              void updateProblem(problem.id, { notes });
+            }
+          }}
+          placeholder="写下自己要记住的一点"
+        />
+      </Panel>
+
+      <Dialog open={cropOpen} onOpenChange={setCropOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>框选图形</DialogTitle>
+            <DialogDescription>只圈图形，用这块原图。</DialogDescription>
+          </DialogHeader>
+          {problem.sourceImage ? (
+            <CropEditor
+              src={problem.sourceImage}
+              value={cropBox}
+              onCommit={(box) => {
+                cropBoxRef.current = box;
+                setCropBox(box);
+              }}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCropOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void applyCrop()} disabled={cropping}>
+              {cropping ? "裁切中…" : "用这块"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>从本子里拿掉？</DialogTitle>
+            <DialogDescription>删除后无法恢复。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                void deleteProblem(problem.id).then(() => {
+                  setConfirmDelete(false);
+                  toast.success("已删除");
+                  void navigate({ to: "/" });
+                });
+              }}
+            >
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl bg-surface p-5 shadow-[var(--shadow-border)]">
+      <h2 className="text-xs font-medium tracking-wider text-muted-foreground">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}

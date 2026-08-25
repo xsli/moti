@@ -1,0 +1,158 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "katex/dist/katex.min.css";
+
+@theme {
+  --color-bg: #f3eee4;
+  --color-background: #f3eee4;
+  --color-surface: #fffbf4;
+  --color-card: #fffbf4;
+  --color-card-foreground: #1a1814;
+  --color-fg: #1a1814;
+  --color-foreground: #1a1814;
+  --color-muted: #6f675c;
+  --color-muted-foreground: #6f675c;
+  --color-primary: #9b2c1a;
+  --color-primary-foreground: #fffbf4;
+  --color-accent: #9b2c1a;
+  --color-accent-foreground: #fffbf4;
+  --color-secondary: #efe8db;
+  --color-secondary-foreground: #1a1814;
+  --color-border: #e4dcd0;
+  --color-input: #e4dcd0;
+  --color-ring: #9b2c1a;
+  --color-destructive: #9b2c1a;
+  --color-destructive-foreground: #fffbf4;
+  --color-popover: #fffbf4;
+  --color-popover-foreground: #1a1814;
+  --color-ink: #1f3a4d;
+  --color-paper: #f3eee4;
+  --color-rule: #e7dfd2;
+  --color-mastered: #2f5d50;
+  --color-cinnabar: #9b2c1a;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius: 10px;
+  --font-sans: "PingFang SC", "PingFang HK", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Songti SC", "STSong", "Noto Serif SC", "PMingLiU", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --shadow-border:
+    0px 0px 0px 1px rgba(26, 24, 20, 0.06), 0px 1px 2px -1px rgba(26, 24, 20, 0.06),
+    0px 2px 4px 0px rgba(26, 24, 20, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(26, 24, 20, 0.1), 0px 1px 3px -1px rgba(26, 24, 20, 0.08),
+    0px 4px 10px 0px rgba(26, 24, 20, 0.05);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.figure-frame svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.drafting-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-ink) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-ink) 7%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.paper-wash {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-surface) 70%, white) 0%,
+    var(--color-bg) 48%,
+    color-mix(in oklab, var(--color-bg) 92%, var(--color-rule)) 100%
+  );
+}
+
+.katex-display {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.math-inline .katex {
+  font-size: 1.05em;
+}
+
+.exam-preview-wrap {
+  overflow-x: auto;
+  padding-bottom: 1rem;
+}
+
+@media print {
+  header,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+
+  .paper-wash {
+    background: #fff;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .exam-preview-wrap {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .exam-preview-wrap .exam-sheet {
+    box-shadow: none;
+  }
+
+  @page {
+    size: A4;
+    margin: 14mm 16mm 16mm;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
