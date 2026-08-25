@@ -426,7 +426,7 @@ function PaperPreview({ items, onBack }: { items: ReturnType<typeof resolveExamI
               checked={withAnswers}
               onChange={(e) => setWithAnswers(e.target.checked)}
             />
-            附参考答案
+            解析版
           </label>
         </div>
       </div>

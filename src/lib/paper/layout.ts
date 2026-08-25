@@ -1,7 +1,7 @@
 import type { Problem } from "@/lib/problems/types";
 
 export type PaperRow =
-  | { kind: "heading"; id: string; title: string }
+  | { kind: "heading"; id: string; title: string; perScore: number }
   | { kind: "problem"; id: string; problemId: string };
 
 export type ExamItem =
@@ -21,9 +21,30 @@ export function chineseOrdinal(n: number): string {
   return String(n);
 }
 
-export function headingLabel(n: number, title: string): string {
-  const name = title.trim();
-  return name ? `${chineseOrdinal(n)}、${name}` : `${chineseOrdinal(n)}、`;
+export function sectionCount(rows: PaperRow[], headingIndex: number): number {
+  let count = 0;
+  for (let i = headingIndex + 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || row.kind === "heading") break;
+    count += 1;
+  }
+  return count;
+}
+
+export function paperTotal(rows: PaperRow[]): number {
+  return rows.reduce((sum, row, index) => {
+    if (row.kind !== "heading") return sum;
+    return sum + sectionCount(rows, index) * (row.perScore || 0);
+  }, 0);
+}
+
+export function headingLabel(n: number, title: string, count: number, perScore: number): string {
+  const name = title.trim() || "大题";
+  if (count <= 0) return `${chineseOrdinal(n)}、${name}`;
+  if (perScore > 0) {
+    return `${chineseOrdinal(n)}、${name}（本题共${count}小题，每题${perScore}分，满分${count * perScore}分）`;
+  }
+  return `${chineseOrdinal(n)}、${name}（本题共${count}小题）`;
 }
 
 export function rowsFromIds(ids: string[]): PaperRow[] {
@@ -35,19 +56,22 @@ export function resolveExamItems(rows: PaperRow[], problems: Problem[]): ExamIte
   const items: ExamItem[] = [];
   let number = 0;
   let heading = 0;
-  for (const row of rows) {
+  rows.forEach((row, index) => {
     if (row.kind === "heading") {
       const title = row.title.trim();
-      if (!title) continue;
+      if (!title) return;
       heading += 1;
-      items.push({ kind: "heading", title: headingLabel(heading, title) });
-      continue;
+      items.push({
+        kind: "heading",
+        title: headingLabel(heading, title, sectionCount(rows, index), row.perScore || 0),
+      });
+      return;
     }
     const problem = byId.get(row.problemId);
-    if (!problem) continue;
+    if (!problem) return;
     number += 1;
     items.push({ kind: "problem", problem, number });
-  }
+  });
   return items;
 }
 

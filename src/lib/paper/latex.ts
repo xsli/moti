@@ -1,4 +1,4 @@
-import type { ExamItem } from "./layout";
+import { chineseOrdinal, type ExamItem } from "./layout";
 import { answerHeightCm } from "./space";
 
 function escapeTex(text: string): string {
@@ -51,15 +51,35 @@ function toTex(input: string): string {
   return parts.join("");
 }
 
+function scoreTableTex(headingCount: number): string {
+  const n = Math.max(1, headingCount);
+  const labels = Array.from({ length: n }, (_, i) => chineseOrdinal(i + 1));
+  const spec = `|c|*{${n}}{c}|c|`;
+  return `\\begin{center}
+\\begin{tabular}{${spec}}
+\\hline
+题号 & ${labels.join(" & ")} & 课程考核成绩 \\\\
+\\hline
+得分 & ${labels.map(() => "\\hspace{1.6em}").join(" & ")} & \\\\
+\\hline
+\\end{tabular}
+\\end{center}`;
+}
+
 export function buildExamLatex(
   items: ExamItem[],
   options: { title: string; dateLabel: string; withAnswers: boolean },
 ): string {
-  const problems = items.filter((item): item is Extract<ExamItem, { kind: "problem" }> => item.kind === "problem");
+  const headingCount = items.filter((item) => item.kind === "heading").length;
   const body = items
     .map((item) => {
       if (item.kind === "heading") {
-        return `\\par\\addvspace{1.1em}\\noindent{\\bfseries\\large ${escapeTex(item.title)}}\\par\\addvspace{0.4em}`;
+        return `\\par\\addvspace{1.0em}
+\\noindent
+{\\setlength{\\tabcolsep}{4pt}\\begin{tabular}{|c|}
+\\hline 得分 \\\\ \\hline \\rule{0pt}{1.15em} \\\\ \\hline
+\\end{tabular}}\\hspace{0.7em}{\\bfseries ${escapeTex(item.title)}}
+\\par\\addvspace{0.45em}`;
       }
       const p = item.problem;
       const fig = p.figures.some((f) => f.image || f.svg)
@@ -68,44 +88,34 @@ export function buildExamLatex(
 \\fbox{\\parbox{0.55\\textwidth}{\\centering\\vspace{1.6cm}\\small 本题附图见导出的 PDF\\vspace{1.6cm}}}
 \\end{center}`
         : "";
+      const space = options.withAnswers
+        ? ""
+        : `\\par\\vspace{${answerHeightCm(p)}}`;
+      const analysis = options.withAnswers
+        ? `
+{\\color{blue}{\\heiti 解析}\\quad ${toTex(p.correctAnswer || "（略）")}
+\\par ${toTex(p.analysis || "")}}`
+        : "";
       return `\\begin{question}
 ${toTex(p.stem)}
 ${fig}
-\\answerbox{${answerHeightCm(p)}}
+${space}
+${analysis}
 \\end{question}`;
     })
     .join("\n\n");
 
-  const answers = options.withAnswers
-    ? `
-\\clearpage
-\\thispagestyle{plain}
-\\begin{center}{\\Large\\bfseries 参考答案}\\end{center}
-\\vspace{0.6em}
-\\begin{enumerate}[leftmargin=1.7em,itemsep=0.7em]
-${problems
-  .map((item) => {
-    return `\\item ${toTex(item.problem.correctAnswer || "（略）")}
-\\par\\vspace{0.25em}
-${toTex(item.problem.analysis || "")}`;
-  })
-  .join("\n")}
-\\end{enumerate}
-`
-    : "";
-
   return `% !TEX program = xelatex
-% 墨题试卷 · A4 · 用 XeLaTeX 编译
+% 墨题试卷 · 版式参考 USTBExam / exam-zh
 \\documentclass[a4paper,11pt]{ctexart}
-\\usepackage[a4paper,left=1.9cm,right=1.9cm,top=2.1cm,bottom=1.8cm]{geometry}
+\\usepackage[a4paper,inner=3.3cm,outer=2.03cm,top=2.54cm,bottom=2.54cm]{geometry}
 \\usepackage{amsmath,amssymb,amsfonts,bm}
-\\usepackage{setspace,fancyhdr,enumitem,graphicx,array,booktabs,xcolor}
+\\usepackage{setspace,fancyhdr,enumitem,graphicx,array,makecell,xcolor}
 \\setstretch{1.28}
 \\pagestyle{fancy}
 \\fancyhf{}
-\\lhead{\\small ${escapeTex(options.title)}}
-\\rhead{\\small 第\\,\\thepage\\,页}
-\\renewcommand{\\headrulewidth}{0.4pt}
+\\cfoot{\\small ${escapeTex(options.title)}试卷\\quad 第\\,\\thepage\\,页}
+\\renewcommand{\\headrulewidth}{0pt}
 \\setlength{\\parindent}{0em}
 \\setlist[enumerate]{leftmargin=1.7em,itemsep=0.55em,topsep=0.3em}
 \\newcounter{qnum}
@@ -115,32 +125,23 @@ ${toTex(item.problem.analysis || "")}`;
   \\noindent\\hangindent=1.75em\\hangafter=1
   {\\bfseries\\theqnum.}\\hspace{0.45em}\\ignorespaces
 }{\\par}
-\\newcommand{\\answerbox}[1]{%
-  \\par\\vspace{0.45em}%
-  \\noindent\\fbox{%
-    \\begin{minipage}[t][#1]{\\dimexpr\\linewidth-2\\fboxsep-2\\fboxrule}
-    \\end{minipage}}%
-  \\par\\vspace{0.55em}%
-}
+\\newcommand{\\answerbox}[1]{\\par\\vspace*{#1}\\par}
 \\begin{document}
-\\thispagestyle{plain}
+\\thispagestyle{fancy}
 \\begin{center}
-  {\\small 墨题}\\\\[0.35em]
-  {\\LARGE\\bfseries ${escapeTex(options.title)}}\\\\[0.45em]
-  {\\small ${escapeTex(options.dateLabel)}}
+  {\\heiti\\LARGE 墨题\\quad ${escapeTex(options.dateLabel)}}\\\\[0.55em]
+  {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "试卷（解析）" : "试卷"}}
 \\end{center}
-\\vspace{0.7em}
-\\noindent 姓名\\underline{\\hspace{3.0cm}}\\hfill
-班级\\underline{\\hspace{2.4cm}}\\hfill
-学号\\underline{\\hspace{2.4cm}}\\hfill
-得分\\underline{\\hspace{2.0cm}}
-\\vspace{0.45em}
-\\noindent\\rule{\\linewidth}{0.8pt}
-\\vspace{0.8em}
-\\vspace{0.3em}
+\\vspace{0.6em}
+\\noindent 姓名\\hrulefill\\,\\hfill
+班级\\hrulefill\\,\\hfill
+学号\\hrulefill\\,\\hfill
+得分\\hrulefill
+\\vspace{0.5em}
+${scoreTableTex(headingCount)}
+\\vspace{0.4em}
 
 ${body}
-${answers}
 \\end{document}
 `;
 }

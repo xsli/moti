@@ -2,7 +2,7 @@ import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { type PointerEvent, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { chineseOrdinal, reorderRows, type PaperRow } from "@/lib/paper/layout";
+import { chineseOrdinal, paperTotal, reorderRows, sectionCount, type PaperRow } from "@/lib/paper/layout";
 import type { Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +26,10 @@ export function ArrangeList({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const byId = new Map(problems.map((p) => [p.id, p]));
   const problemCount = rows.filter((row) => row.kind === "problem").length;
+  const total = paperTotal(rows);
 
   function addHeading(title = "填空题") {
-    onChange([{ kind: "heading", id: crypto.randomUUID(), title }, ...rows]);
+    onChange([{ kind: "heading", id: crypto.randomUUID(), title, perScore: 4 }, ...rows]);
   }
 
   function dropIndex(clientY: number) {
@@ -66,7 +67,9 @@ export function ArrangeList({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold">排版</h1>
-          <p className="mt-1 text-sm text-muted-foreground">按住左侧横条拖动排序，色块是大题标题。</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            按住左侧横条拖动排序。总分 {total} 分。
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={onBack}>
@@ -133,7 +136,7 @@ export function ArrangeList({
                   <GripVertical className="size-4" />
                 </button>
                 {isHeading ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-1 py-1 pr-1">
+                  <div className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-1">
                     <span className="shrink-0 font-display text-base font-semibold tracking-wide">
                       {chineseOrdinal(headingNo)}、
                     </span>
@@ -146,9 +149,32 @@ export function ArrangeList({
                           ),
                         )
                       }
-                      className="h-9 border-0 bg-transparent font-display text-base font-semibold tracking-wide text-primary-foreground shadow-none focus-visible:ring-0"
+                      className="h-9 min-w-0 flex-1 border-0 bg-transparent font-display text-base font-semibold tracking-wide text-primary-foreground shadow-none focus-visible:ring-0"
                       aria-label="一级标题"
                     />
+                    <label className="flex shrink-0 items-center gap-1 text-xs">
+                      每题
+                      <Input
+                        type="number"
+                        min={0}
+                        value={row.perScore ?? 0}
+                        onChange={(e) =>
+                          onChange(
+                            rows.map((item) =>
+                              item.id === row.id && item.kind === "heading"
+                                ? { ...item, perScore: Math.max(0, Number(e.target.value) || 0) }
+                                : item,
+                            ),
+                          )
+                        }
+                        className="h-8 w-14 border-primary-foreground/25 bg-primary-foreground/10 text-center text-primary-foreground shadow-none"
+                        aria-label="每题分数"
+                      />
+                      分
+                    </label>
+                    <span className="shrink-0 text-xs opacity-80">
+                      {sectionCount(rows, index)}题 / {sectionCount(rows, index) * (row.perScore || 0)}分
+                    </span>
                   </div>
                 ) : (
                   <p className="min-w-0 flex-1 truncate py-3 pr-3 text-sm">

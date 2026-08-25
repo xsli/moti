@@ -1,7 +1,6 @@
 import katexCss from "katex/dist/katex.min.css?inline";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { answerHeightMm } from "@/lib/paper/space";
-import type { ExamItem } from "@/lib/paper/layout";
+import { chineseOrdinal, type ExamItem } from "@/lib/paper/layout";
 import { MathText } from "@/lib/problems/math-text";
 import type { Problem } from "@/lib/problems/types";
 
@@ -10,7 +9,7 @@ const EXAM_CSS = `
 .exam-page, .exam-measure {
   width: 210mm;
   box-sizing: border-box;
-  padding: 10mm 18mm 18mm;
+  padding: 25.4mm 20.3mm 25.4mm 33mm;
   background: #fff;
   color: #1a1814;
   font-family: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
@@ -24,43 +23,84 @@ const EXAM_CSS = `
   box-shadow: var(--shadow-border);
 }
 .exam-page *, .exam-measure * { box-sizing: border-box; }
+.exam-seal {
+  position: absolute;
+  left: 0;
+  top: 25.4mm;
+  bottom: 25.4mm;
+  width: 28mm;
+}
+.exam-seal-line {
+  position: absolute;
+  right: 5mm;
+  top: 0;
+  bottom: 0;
+  border-right: 1px dotted #1a1814;
+}
+.exam-seal-msg {
+  position: absolute;
+  left: 3mm;
+  top: 10mm;
+  bottom: 10mm;
+  writing-mode: vertical-rl;
+  font-size: 9pt;
+  letter-spacing: 0.42em;
+}
+.exam-seal-bind {
+  position: absolute;
+  right: 7.2mm;
+  top: 18mm;
+  writing-mode: vertical-rl;
+  font-size: 8pt;
+  letter-spacing: 0.55em;
+  color: #5c574e;
+}
 .exam-head { text-align: center; }
 .exam-brand {
   position: absolute;
-  left: 18mm;
-  top: 10mm;
+  left: 33mm;
+  top: 25.4mm;
   display: flex;
   align-items: center;
   gap: 6pt;
   margin: 0;
   z-index: 1;
 }
-.exam-brand svg { width: 22pt; height: 22pt; display: block; }
+.exam-brand svg { width: 16pt; height: 16pt; display: block; }
 .exam-brand-name {
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
-  font-size: 11pt;
+  font-size: 10pt;
   font-weight: 650;
   letter-spacing: 0.22em;
+}
+.exam-school {
+  margin: 0;
+  font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
+  font-size: 15pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.45;
 }
 .exam-title {
   margin: 0;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   font-size: 16pt;
   font-weight: 700;
-  letter-spacing: 0.28em;
-  line-height: 1.3;
+  line-height: 1.4;
 }
-.exam-date {
-  margin: 3pt 0 0;
-  font-size: 10pt;
-  color: #5c574e;
+.exam-course {
+  display: inline-block;
+  min-width: 7em;
+  padding: 0 0.7em 1pt;
+  border-bottom: 1.15pt solid #1a1814;
+  letter-spacing: 0.28em;
 }
 .exam-meta {
   display: flex;
   justify-content: space-between;
   gap: 8pt;
-  margin: 8pt 0 6pt;
-  font-size: 11pt;
+  margin: 10pt 0 8pt;
+  font-size: 10.5pt;
 }
 .exam-meta-item {
   flex: 1;
@@ -73,13 +113,24 @@ const EXAM_CSS = `
   flex: 1;
   border-bottom: 1px solid #1a1814;
   height: 1.05em;
-  min-width: 2.4em;
+  min-width: 2.2em;
 }
-.exam-rule {
-  border: 0;
-  border-top: 1.15pt solid #1a1814;
+.exam-score {
+  width: 100%;
+  border-collapse: collapse;
   margin: 0 0 10pt;
+  font-size: 10.5pt;
 }
+.exam-score th, .exam-score td {
+  border: 0.7pt solid #1a1814;
+  text-align: center;
+  height: 22pt;
+  padding: 2pt 4pt;
+  font-weight: 400;
+}
+.exam-score th:first-child,
+.exam-score td:first-child { width: 3.2em; }
+.exam-score th:last-child { width: 8em; white-space: nowrap; }
 .exam-runhead {
   display: flex;
   justify-content: space-between;
@@ -88,12 +139,17 @@ const EXAM_CSS = `
   color: #5c574e;
   margin: 0 0 6pt;
 }
+.exam-rule {
+  border: 0;
+  border-top: 0.6pt solid #1a1814;
+  margin: 0 0 8pt;
+}
 .exam-q { margin: 0 0 12pt; }
 .exam-stem {
   margin: 0;
   padding-left: 2em;
   text-indent: -2em;
-  font-size: 12pt;
+  font-size: 10.5pt;
   line-height: 1.85;
 }
 .exam-no {
@@ -112,17 +168,49 @@ const EXAM_CSS = `
   background: #fff;
 }
 .exam-box {
-  margin-top: 8pt;
-  border: 0.85pt solid #1a1814;
-  padding: 5pt 8pt 8pt;
+  margin-top: 6pt;
+  margin-bottom: 1.15em;
+  min-height: 10mm;
+}
+.exam-box-sizer { visibility: hidden; }
+.exam-analysis {
+  margin: 6pt 0 1.15em 2em;
+  color: #1d4ed8;
+  font-size: 10.5pt;
+  line-height: 1.75;
+}
+.exam-analysis-label {
+  font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
+  font-weight: 700;
+  margin-right: 0.45em;
+}
+.exam-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10pt;
+  margin: 10pt 0 8pt;
 }
 .exam-section {
-  margin: 10pt 0 8pt;
+  margin: 0;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
-  font-size: 14pt;
+  font-size: 12pt;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
+.exam-mini-score {
+  border-collapse: collapse;
+  width: 32pt;
+  flex-shrink: 0;
+  font-size: 9pt;
+}
+.exam-mini-score th, .exam-mini-score td {
+  border: 0.7pt solid #1a1814;
+  text-align: center;
+  padding: 2pt 3pt;
+  height: 16pt;
+}
+.exam-mini-score td { height: 20pt; }
 .exam-answers-title {
   text-align: center;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
@@ -133,12 +221,12 @@ const EXAM_CSS = `
 }
 .exam-page-no {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 7mm;
+  left: 33mm;
+  right: 20.3mm;
+  bottom: 12mm;
   text-align: center;
   font-size: 9pt;
-  color: #6b655c;
+  color: #1a1814;
 }
 .exam-measure {
   position: absolute;
@@ -157,25 +245,105 @@ const EXAM_CSS = `
 type Block =
   | { kind: "heading"; title: string }
   | { kind: "q"; problem: Problem; index: number }
-  | { kind: "answers-title" }
-  | { kind: "a"; problem: Problem; index: number };
+  | { kind: "analysis"; problem: Problem; index: number };
 
-function QuestionBlock({ problem, index, answer }: { problem: Problem; index: number; answer?: boolean }) {
-  if (answer) {
-    return (
-      <section className="exam-q">
-        <p className="exam-stem">
-          <span className="exam-no">{index + 1}.</span>
-          <MathText text={problem.correctAnswer || "（略）"} inline />
-        </p>
-        {problem.analysis ? (
-          <div style={{ paddingLeft: "2em", marginTop: "6pt", fontSize: "10.5pt" }}>
-            <MathText text={problem.analysis} />
-          </div>
-        ) : null}
-      </section>
-    );
+const SEAL_QUIPS = [
+  "错过一次就够了，下次换我赢",
+  "这不是考试，是和昨天的自己复盘",
+  "错题会说话，认真听它把坑讲完",
+  "会的先拿下，不会的慢慢磨",
+  "复习卷，深呼吸，写完去喝水",
+  "别在同一道题上栽第二次",
+  "空白处留给明天更聪明的你",
+  "墨题在手，旧坑逐个填平",
+  "写得慢没关系，想清楚再落笔",
+  "先把会做的写漂亮",
+  "答案可以慢，思路别乱跑",
+  "这页的坑，今天必须填上",
+  "算错不可怕，抄错才冤枉",
+  "公式记得住，步骤也要写清",
+  "不会就画画图，别干瞪眼",
+  "今天订正一题，明天少慌一次",
+  "草稿纸可以脏，卷面请温柔",
+  "题目在考你，你也在训练它",
+  "看完题再动笔，少走十分钟弯路",
+  "熟练来自重复，不是来自玄学",
+  "把粗心抓现行，别让它毕业",
+  "这道题眼熟就对了，熟还要会",
+  "先求对，再求快，最后求好看",
+  "休息一下眼睛，别和符号较劲",
+];
+
+const BIND_QUIPS = [
+  "线内请勿答题",
+  "装订处请留白",
+  "这里不写答案",
+  "线内禁止神游",
+  "订书机的地盘",
+  "线里住着订针",
+  "装订线请绕行",
+  "此处仅供装订",
+  "订这里，写那边",
+  "线内谢绝演算",
+  "别往订口塞字",
+  "装订员说谢谢",
+  "这条线很内向",
+  "针脚处请回避",
+  "答案请写右边",
+  "线内只装订不思考",
+];
+
+function shuffle<T>(list: T[]): T[] {
+  const next = [...list];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const a = next[i];
+    const b = next[j];
+    if (a === undefined || b === undefined) continue;
+    next[i] = b;
+    next[j] = a;
   }
+  return next;
+}
+
+function Seal({ msg, bind }: { msg: string; bind: string }) {
+  return (
+    <div className="exam-seal" aria-hidden="true">
+      <div className="exam-seal-line" />
+      <span className="exam-seal-msg">{msg}</span>
+      <span className="exam-seal-bind">{bind}</span>
+    </div>
+  );
+}
+
+function ScoreTable({ count }: { count: number }) {
+  const parts = Math.max(1, count);
+  const labels = Array.from({ length: parts }, (_, i) => chineseOrdinal(i + 1));
+  return (
+    <table className="exam-score">
+      <thead>
+        <tr>
+          <th>题号</th>
+          {labels.map((label) => (
+            <th key={label}>{label}</th>
+          ))}
+          <th>课程考核成绩</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>得分</th>
+          {labels.map((label) => (
+            <td key={label} />
+          ))}
+          <td />
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+function QuestionBlock({ problem, index, blank }: { problem: Problem; index: number; blank?: boolean }) {
   return (
     <section className="exam-q">
       <p className="exam-stem">
@@ -189,8 +357,28 @@ function QuestionBlock({ problem, index, answer }: { problem: Problem; index: nu
           </div>
         ) : null,
       )}
-      <div className="exam-box" style={{ minHeight: `${answerHeightMm(problem)}mm` }} />
+      {blank ? (
+        <div className="exam-box">
+          <div className="exam-box-sizer">
+            <AnalysisBlock problem={problem} />
+          </div>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function AnalysisBlock({ problem }: { problem: Problem }) {
+  return (
+    <div className="exam-analysis">
+      <span className="exam-analysis-label">解析</span>
+      <MathText text={problem.correctAnswer || "（略）"} inline />
+      {problem.analysis ? (
+        <div style={{ marginTop: "4pt" }}>
+          <MathText text={problem.analysis} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -207,12 +395,21 @@ function ExamLogo() {
   );
 }
 
-function CoverHead({ title, dateLabel }: { title: string; dateLabel: string }) {
+function CoverHead({
+  title,
+  headingCount,
+}: {
+  title: string;
+  headingCount: number;
+  dateLabel?: string;
+  analysis?: boolean;
+}) {
   return (
     <>
       <header className="exam-head">
-        <h1 className="exam-title">{title}</h1>
-        <p className="exam-date">{dateLabel}</p>
+        <h1 className="exam-title">
+          <span className="exam-course">{title}</span>
+        </h1>
       </header>
       <div className="exam-meta">
         <div className="exam-meta-item">
@@ -228,28 +425,35 @@ function CoverHead({ title, dateLabel }: { title: string; dateLabel: string }) {
           得分 <span className="exam-blank" />
         </div>
       </div>
-      <hr className="exam-rule" />
+      <ScoreTable count={headingCount} />
     </>
   );
 }
 
-function RunHead({ title }: { title: string }) {
+function SectionHead({ title }: { title: string }) {
   return (
-    <>
-      <div className="exam-runhead">
-        <span>{title}</span>
-        <span>续</span>
-      </div>
-      <hr className="exam-rule" />
-    </>
+    <div className="exam-section-row">
+      <table className="exam-mini-score">
+        <thead>
+          <tr>
+            <th>得分</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+      <h2 className="exam-section">{title}</h2>
+    </div>
   );
 }
 
-function BlockView({ block }: { block: Block }) {
-  if (block.kind === "heading") return <h2 className="exam-section">{block.title}</h2>;
-  if (block.kind === "answers-title") return <h2 className="exam-answers-title">参考答案</h2>;
-  if (block.kind === "a") return <QuestionBlock problem={block.problem} index={block.index} answer />;
-  return <QuestionBlock problem={block.problem} index={block.index} />;
+function BlockView({ block, blank }: { block: Block; blank: boolean }) {
+  if (block.kind === "heading") return <SectionHead title={block.title} />;
+  if (block.kind === "analysis") return <AnalysisBlock problem={block.problem} />;
+  return <QuestionBlock problem={block.problem} index={block.index} blank={blank} />;
 }
 
 export function ExamSheet({
@@ -265,22 +469,20 @@ export function ExamSheet({
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<Block[][]>([]);
+  const headingCount = items.filter((item) => item.kind === "heading").length;
+  const sealDeck = useMemo(
+    () => ({ msgs: shuffle(SEAL_QUIPS), binds: shuffle(BIND_QUIPS) }),
+    [title, dateLabel],
+  );
 
   const blocks = useMemo(() => {
     const next: Block[] = [];
-    const problems: Problem[] = [];
     for (const item of items) {
       if (item.kind === "heading") {
         next.push({ kind: "heading", title: item.title });
       } else {
         next.push({ kind: "q", problem: item.problem, index: item.number - 1 });
-        problems.push(item.problem);
-      }
-    }
-    if (withAnswers) {
-      next.push({ kind: "answers-title" });
-      for (const [index, problem] of problems.entries()) {
-        next.push({ kind: "a", problem, index });
+        if (withAnswers) next.push({ kind: "analysis", problem: item.problem, index: item.number - 1 });
       }
     }
     return next;
@@ -312,34 +514,47 @@ export function ExamSheet({
 
       const width = mount.clientWidth || 794;
       const pxPerMm = width / 210;
-      const inner = (297 - 10 - 18) * pxPerMm - 8;
+      const inner = (297 - 25.4 - 25.4) * pxPerMm - 6 * pxPerMm;
       const head = mount.querySelector("[data-measure='head']") as HTMLElement | null;
-      const run = mount.querySelector("[data-measure='run']") as HTMLElement | null;
-      const headH = head?.offsetHeight ?? 120;
-      const runH = run?.offsetHeight ?? 36;
+      const headH = head?.offsetHeight ?? 160;
       const itemNodes = [...mount.querySelectorAll<HTMLElement>("[data-measure='item']")];
 
+      function spanHeight(from: number, to: number) {
+        const start = itemNodes[from];
+        const last = itemNodes[to];
+        const next = itemNodes[to + 1];
+        if (!start || !last) return 0;
+        if (next) return next.getBoundingClientRect().top - start.getBoundingClientRect().top;
+        const child = (last.firstElementChild as HTMLElement | null) ?? last;
+        const mb = parseFloat(getComputedStyle(child).marginBottom) || 0;
+        return last.getBoundingClientRect().bottom - start.getBoundingClientRect().top + mb;
+      }
+
       const packed: Block[][] = [];
+      const groups: number[][] = [];
+      for (let i = 0; i < blocks.length; i += 1) {
+        if (blocks[i]?.kind === "q" && blocks[i + 1]?.kind === "analysis") {
+          groups.push([i, i + 1]);
+          i += 1;
+        } else {
+          groups.push([i]);
+        }
+      }
+
       let current: Block[] = [];
       let used = headH;
-      let first = true;
-
-      itemNodes.forEach((node, i) => {
-        const block = blocks[i];
-        if (!block) return;
-        const h = node.offsetHeight + 8;
-        const forceNew = block.kind === "answers-title";
-        const budget = first ? inner : inner - runH;
-        if (forceNew || (current.length && used + h > budget)) {
+      for (const idxs of groups) {
+        const groupBlocks = idxs.map((i) => blocks[i]).filter(Boolean) as Block[];
+        const h = spanHeight(idxs[0], idxs[idxs.length - 1]);
+        if (current.length && used + h > inner) {
           packed.push(current);
-          current = [block];
-          used = runH + h;
-          first = false;
+          current = groupBlocks;
+          used = h;
         } else {
-          current.push(block);
+          current.push(...groupBlocks);
           used += h;
         }
-      });
+      }
       if (current.length) packed.push(current);
       for (let i = 0; i < packed.length - 1; i += 1) {
         const page = packed[i];
@@ -360,7 +575,7 @@ export function ExamSheet({
     return () => {
       cancelled = true;
     };
-  }, [blocks, title, dateLabel]);
+  }, [blocks, title, dateLabel, headingCount]);
 
   return (
     <div className="exam-sheet">
@@ -371,14 +586,11 @@ export function ExamSheet({
       <style>{`${katexCss}\n${EXAM_CSS}`}</style>
       <div className="exam-measure" ref={measureRef}>
         <div data-measure="head">
-          <CoverHead title={title} dateLabel={dateLabel} />
-        </div>
-        <div data-measure="run">
-          <RunHead title={title} />
+          <CoverHead title={title} dateLabel={dateLabel} headingCount={headingCount} analysis={withAnswers} />
         </div>
         {blocks.map((block, i) => (
           <div key={`${block.kind}-${i}`} data-measure="item">
-            <BlockView block={block} />
+            <BlockView block={block} blank={!withAnswers} />
           </div>
         ))}
       </div>
@@ -386,13 +598,19 @@ export function ExamSheet({
       <div className="exam-pack">
         {pages.map((pageBlocks, pageIndex) => (
           <article key={pageIndex} className="exam-page">
+            <Seal
+              msg={sealDeck.msgs[pageIndex % sealDeck.msgs.length] ?? SEAL_QUIPS[0]}
+              bind={sealDeck.binds[pageIndex % sealDeck.binds.length] ?? BIND_QUIPS[0]}
+            />
             {pageIndex === 0 ? <ExamLogo /> : null}
-            {pageIndex === 0 ? <CoverHead title={title} dateLabel={dateLabel} /> : <RunHead title={title} />}
+            {pageIndex === 0 ? (
+              <CoverHead title={title} dateLabel={dateLabel} headingCount={headingCount} analysis={withAnswers} />
+            ) : null}
             {pageBlocks.map((block, i) => (
-              <BlockView key={`${block.kind}-${i}`} block={block} />
+              <BlockView key={`${block.kind}-${i}`} block={block} blank={!withAnswers} />
             ))}
             <div className="exam-page-no">
-              第 {pageIndex + 1} 页 / {pages.length}
+              {title}试卷　第 {pageIndex + 1} 页　共 {pages.length} 页
             </div>
           </article>
         ))}

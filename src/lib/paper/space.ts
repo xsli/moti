@@ -1,12 +1,26 @@
 import type { Problem } from "@/lib/problems/types";
 
-export function answerHeightMm(problem: Problem): number {
-  const source = `${problem.correctAnswer ?? ""}\n${problem.analysis ?? ""}`
-    .replace(/\$/g, "")
+function answerPlain(raw: string) {
+  return raw
+    .replace(/\$\$[\s\S]*?\$\$/g, "公式")
+    .replace(/\$[^$]+\$/g, "式")
     .replace(/\s+/g, " ")
     .trim();
-  const lines = Math.max(2, Math.ceil(Math.max(source.length, 12) / 20));
-  return Math.min(88, Math.max(16, lines * 7));
+}
+
+export function answerHeightMm(problem: Problem): number {
+  const raw = `${problem.correctAnswer ?? ""}\n${problem.analysis ?? ""}`;
+  const plain = answerPlain(raw);
+  const paras = raw.split(/\n+/).filter((line) => line.trim()).length;
+  const displays = Math.floor((raw.match(/\$\$/g) ?? []).length / 2);
+  const choice = /^[A-Da-d甲乙丙丁]$/.test(plain);
+  const number = /^[+-]?\d+(\.\d+)?$/.test(plain);
+
+  if (choice || number || (plain.length <= 10 && paras <= 1 && displays === 0)) return 8;
+  if (plain.length <= 28 && paras <= 1 && displays <= 1) return 14;
+  if (plain.length <= 80 && paras <= 4) return 24;
+  if (plain.length <= 160) return 36;
+  return 48;
 }
 
 export function answerHeightCm(problem: Problem): string {
