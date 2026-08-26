@@ -1,6 +1,7 @@
 import katexCss from "katex/dist/katex.min.css?inline";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { chineseOrdinal, type ExamItem } from "@/lib/paper/layout";
+import { blankHeightMm, hasWrittenAnswer, type BlankLines } from "@/lib/paper/space";
 import { MathText } from "@/lib/problems/math-text";
 import type { Problem } from "@/lib/problems/types";
 
@@ -356,7 +357,21 @@ function ScoreTable({ count }: { count: number }) {
   );
 }
 
-function QuestionBlock({ problem, index, blank }: { problem: Problem; index: number; blank?: boolean }) {
+function QuestionBlock({
+  problem,
+  index,
+  blank,
+  blankLines,
+  blankAuto,
+}: {
+  problem: Problem;
+  index: number;
+  blank?: boolean;
+  blankLines: BlankLines;
+  blankAuto: boolean;
+}) {
+  const height = blankHeightMm(problem, blankLines, blankAuto);
+  const useSizer = blankAuto && hasWrittenAnswer(problem);
   return (
     <section className="exam-q">
       <p className="exam-stem">
@@ -371,11 +386,15 @@ function QuestionBlock({ problem, index, blank }: { problem: Problem; index: num
         ) : null,
       )}
       {blank ? (
-        <div className="exam-box">
-          <div className="exam-box-sizer">
-            <AnalysisBlock problem={problem} />
+        useSizer ? (
+          <div className="exam-box">
+            <div className="exam-box-sizer">
+              <AnalysisBlock problem={problem} />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="exam-box" style={{ height: `${height}mm`, minHeight: `${height}mm` }} />
+        )
       ) : null}
     </section>
   );
@@ -465,10 +484,28 @@ function SectionHead({ title }: { title: string }) {
   );
 }
 
-function BlockView({ block, blank }: { block: Block; blank: boolean }) {
+function BlockView({
+  block,
+  blank,
+  blankLines,
+  blankAuto,
+}: {
+  block: Block;
+  blank: boolean;
+  blankLines: BlankLines;
+  blankAuto: boolean;
+}) {
   if (block.kind === "heading") return <SectionHead title={block.title} />;
   if (block.kind === "analysis") return <AnalysisBlock problem={block.problem} />;
-  return <QuestionBlock problem={block.problem} index={block.index} blank={blank} />;
+  return (
+    <QuestionBlock
+      problem={block.problem}
+      index={block.index}
+      blank={blank}
+      blankLines={blankLines}
+      blankAuto={blankAuto}
+    />
+  );
 }
 
 export function ExamSheet({
@@ -476,11 +513,15 @@ export function ExamSheet({
   dateLabel,
   items,
   withAnswers,
+  blankLines = 5,
+  blankAuto = false,
 }: {
   title: string;
   dateLabel: string;
   items: ExamItem[];
   withAnswers: boolean;
+  blankLines?: BlankLines;
+  blankAuto?: boolean;
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<Block[][]>([]);
@@ -590,7 +631,7 @@ export function ExamSheet({
     return () => {
       cancelled = true;
     };
-  }, [blocks, title, dateLabel, headingCount]);
+  }, [blocks, title, dateLabel, headingCount, withAnswers, blankLines, blankAuto]);
 
   return (
     <div className="exam-sheet">
@@ -605,7 +646,7 @@ export function ExamSheet({
         </div>
         {blocks.map((block, i) => (
           <div key={`${block.kind}-${i}`} data-measure="item">
-            <BlockView block={block} blank={!withAnswers} />
+            <BlockView block={block} blank={!withAnswers} blankLines={blankLines} blankAuto={blankAuto} />
           </div>
         ))}
       </div>
@@ -622,7 +663,7 @@ export function ExamSheet({
               <CoverHead title={title} dateLabel={dateLabel} headingCount={headingCount} analysis={withAnswers} />
             ) : null}
             {pageBlocks.map((block, i) => (
-              <BlockView key={`${block.kind}-${i}`} block={block} blank={!withAnswers} />
+              <BlockView key={`${block.kind}-${i}`} block={block} blank={!withAnswers} blankLines={blankLines} blankAuto={blankAuto} />
             ))}
             <div className="exam-page-no">
               {title}　第 {pageIndex + 1} 页　共 {pages.length} 页

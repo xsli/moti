@@ -106,6 +106,7 @@ export function mergeProblems(primary: Problem[], secondary: Problem[]): Problem
     map.set(item.id, {
       ...newer,
       sourceImage: newer.sourceImage || older.sourceImage,
+      collectionId: newer.collectionId || older.collectionId,
       figures:
         newer.figures.some((f) => f.image || f.svg)
           ? newer.figures.map((fig, i) => ({

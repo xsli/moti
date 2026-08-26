@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Sparkles, Scissors, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { solveProblem } from "@/lib/ai/extract";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { cropDataUrl } from "@/lib/image/compress";
 import { formatLoggedDateLong } from "@/lib/problems/dates";
@@ -83,7 +84,38 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const [cropBox, setCropBox] = useState<ImageBBox>({ x: 0.38, y: 0.26, w: 0.58, h: 0.6 });
   const cropBoxRef = useRef(cropBox);
   const [cropping, setCropping] = useState(false);
+  const [solving, setSolving] = useState(false);
   const noteValue = notes ?? problem.notes;
+  const hasAnswer = Boolean(problem.correctAnswer.trim());
+
+  async function askGrok() {
+    if (!problem.stem.trim()) {
+      toast.error("题干是空的，没法解答。");
+      return;
+    }
+    setSolving(true);
+    try {
+      const result = await solveProblem({
+        data: {
+          stem: problem.stem,
+          imageDataUrl: problem.figures[0]?.image || problem.sourceImage,
+        },
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      await updateProblem(problem.id, {
+        correctAnswer: result.correctAnswer,
+        analysis: result.analysis,
+      });
+      toast.success("已写入答案和解析");
+    } catch {
+      toast.error("解答中断了，请再试一次。");
+    } finally {
+      setSolving(false);
+    }
+  }
 
   async function applyCrop() {
     if (!problem.sourceImage) return;
@@ -179,12 +211,30 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         ) : null}
       </article>
 
-      <Panel title="答案">
-        <MathText text={problem.correctAnswer || "（未填写）"} />
+      <Panel
+        title="答案"
+        action={
+          !hasAnswer ? (
+            <Button size="sm" variant="outline" onClick={() => void askGrok()} disabled={solving}>
+              {solving ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              {solving ? "正在解答…" : "AI 解答"}
+            </Button>
+          ) : null
+        }
+      >
+        {solving && !hasAnswer ? (
+          <p className="text-sm text-muted-foreground">Grok 正在做这道题…</p>
+        ) : (
+          <MathText text={problem.correctAnswer || "（未填写）"} />
+        )}
       </Panel>
 
       <Panel title="解析">
-        <MathText text={problem.analysis || "（未填写）"} />
+        {solving && !problem.analysis.trim() ? (
+          <p className="text-sm text-muted-foreground">解析生成后会出现在这里。</p>
+        ) : (
+          <MathText text={problem.analysis || "（未填写）"} />
+        )}
       </Panel>
 
       <Panel title="掌握程度">
@@ -273,10 +323,21 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="rounded-xl bg-surface p-5 shadow-[var(--shadow-border)]">
-      <h2 className="text-xs font-medium tracking-wider text-muted-foreground">{title}</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xs font-medium tracking-wider text-muted-foreground">{title}</h2>
+        {action}
+      </div>
       <div className="mt-3">{children}</div>
     </section>
   );

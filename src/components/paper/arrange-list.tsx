@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { chineseOrdinal, paperTotal, reorderRows, sectionCount, type PaperRow } from "@/lib/paper/layout";
 import { applyLayoutToIds, idsFromRows } from "@/lib/paper/session";
+import type { BlankLines } from "@/lib/paper/space";
 import { usePaperStore } from "@/lib/paper/store";
 import type { Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
@@ -23,7 +24,7 @@ export function ArrangeList({
   rows: PaperRow[];
   problems: Problem[];
   onChange: (rows: PaperRow[]) => void;
-  onApplyMeta?: (meta: { title: string; withAnswers: boolean }) => void;
+  onApplyMeta?: (meta: { title: string; withAnswers: boolean; blankLines: BlankLines; blankAuto: boolean }) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -44,7 +45,12 @@ export function ArrangeList({
     const template = templates.find((item) => item.id === layoutId);
     if (!template) return;
     onChange(applyLayoutToIds(template.rows, idsFromRows(rows)));
-    onApplyMeta?.({ title: template.title, withAnswers: template.withAnswers });
+    onApplyMeta?.({
+      title: template.title,
+      withAnswers: template.withAnswers,
+      blankLines: template.blankLines,
+      blankAuto: template.blankAuto,
+    });
     toast.success(`已套用「${template.name}」，可继续改`);
   }
 

@@ -1,5 +1,5 @@
 import { chineseOrdinal, type ExamItem } from "./layout";
-import { answerHeightCm } from "./space";
+import { blankHeightCm, DEFAULT_BLANK_LINES, type BlankLines } from "./space";
 
 function escapeTex(text: string): string {
   return text.replace(/[\\&%$#_{}~^]/g, (ch) => {
@@ -68,7 +68,7 @@ function scoreTableTex(headingCount: number): string {
 
 export function buildExamLatex(
   items: ExamItem[],
-  options: { title: string; dateLabel: string; withAnswers: boolean },
+  options: { title: string; dateLabel: string; withAnswers: boolean; blankLines?: BlankLines; blankAuto?: boolean },
 ): string {
   const headingCount = items.filter((item) => item.kind === "heading").length;
   const body = items
@@ -90,7 +90,7 @@ export function buildExamLatex(
         : "";
       const space = options.withAnswers
         ? ""
-        : `\\par\\vspace{${answerHeightCm(p)}}`;
+        : `\\par\\vspace{${blankHeightCm(p, options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
       const analysis = options.withAnswers
         ? `
 {\\color{blue}{\\heiti 解析}\\quad ${toTex(p.correctAnswer || "（略）")}

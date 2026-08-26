@@ -11,8 +11,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { extractProblem, EXTRACT_TIMEOUT_MS, type ExtractedProblem } from "@/lib/ai/extract";
-import { cropDataUrl, fileToDataUrl } from "@/lib/image/compress";
+import {
+  cancelExtractJob,
+  extractProblem,
+  MAX_CAPTURE_IMAGES,
+  pollExtractJob,
+  stashExtractImage,
+  startExtractJob,
+  type ExtractedProblem,
+} from "@/lib/ai/extract";
+import {
+  clearCaptureHold,
+  loadCaptureHold,
+  persistCaptureHold,
+  writeCaptureHold,
+} from "@/lib/capture/hold";
+import { cropDataUrl, dataUrlForGrok, fileToDataUrl } from "@/lib/image/compress";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { MathText } from "@/lib/problems/math-text";
 import { useProblemStore } from "@/lib/problems/store";
@@ -27,11 +41,56 @@ export const Route = createFileRoute("/capture")({ component: CapturePage });
 
 type Stage = "idle" | "loading" | "review";
 
+type ExtractProgress = {
+  phase: "upload" | "recognize";
+  current: number;
+  total: number;
+  startedAt: number;
+};
+
 type DraftItem = ExtractedProblem & { sourceImage?: string };
 
 function defaultCropBox(hint?: ImageBBox): ImageBBox {
   if (hint && hint.w * hint.h <= 0.6) return hint;
   return { x: 0.38, y: 0.26, w: 0.58, h: 0.6 };
+}
+
+function waitForJob(
+  jobId: string,
+  signal: AbortSignal,
+  onProgress?: (info: { current: number; total: number; startedAt: number }) => void,
+): Promise<ExtractedProblem[]> {
+  return new Promise((resolve, reject) => {
+    let poll = 0;
+    const fail = () => {
+      window.clearInterval(poll);
+      void cancelExtractJob({ data: { jobId } });
+      reject(new DOMException("cancelled", "AbortError"));
+    };
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener("abort", fail, { once: true });
+    const tick = () => {
+      void pollExtractJob({ data: { jobId } }).then((state) => {
+        if (state.status === "running") {
+          onProgress?.({
+            current: state.current ?? 1,
+            total: state.total ?? 1,
+            startedAt: state.startedAt ?? Date.now(),
+          });
+          return;
+        }
+        window.clearInterval(poll);
+        signal.removeEventListener("abort", fail);
+        if (state.status === "done") resolve(state.results);
+        else reject(new Error(state.error));
+      }, reject);
+    };
+    tick();
+    poll = window.setInterval(tick, 1500);
+  });
 }
 
 function CapturePage() {
@@ -48,20 +107,68 @@ function CapturePage() {
   }, [problems]);
   const inputRef = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>("idle");
-  const [step, setStep] = useState(0);
   const [images, setImages] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<ExtractProgress | null>(null);
+  const [withAnswer, setWithAnswer] = useState(false);
   const extractAbort = useRef<AbortController | null>(null);
+  const jobIdRef = useRef("");
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setWithAnswer(window.localStorage.getItem("moti-extract-with-answer") === "1");
+  }, []);
 
   useEffect(() => {
     if (!userId || typeof window === "undefined") return;
     const last = window.localStorage.getItem(`moti-last-collection:${userId}`) ?? "";
-    if (last) setCollectionId(last);
+    if (last && !jobIdRef.current) setCollectionId((cur) => cur || last);
   }, [userId]);
+
+  useEffect(() => {
+    let live = true;
+    void loadCaptureHold().then((hold) => {
+      if (!live) return;
+      restored.current = true;
+      if (!hold) return;
+      if (hold.collectionId) setCollectionId(hold.collectionId);
+      if (hold.images.length) setImages(hold.images);
+      if (hold.text) setText(hold.text);
+      if (hold.drafts.length && hold.stage === "review") {
+        setDrafts(hold.drafts);
+        setIndex(hold.index);
+        setStage("review");
+        return;
+      }
+      if (hold.jobId && hold.stage === "loading") {
+        jobIdRef.current = hold.jobId;
+        void continueJobRef.current(hold.jobId, hold.images);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!restored.current) return;
+    writeCaptureHold({
+      images,
+      text,
+      collectionId,
+      drafts,
+      index,
+      stage,
+      jobId: jobIdRef.current,
+    });
+    const timer = window.setTimeout(() => void persistCaptureHold(), 400);
+    return () => window.clearTimeout(timer);
+  }, [images, text, collectionId, drafts, index, stage]);
 
   function pickCollection(id: string) {
     setCollectionId(id);
@@ -69,6 +176,77 @@ function CapturePage() {
       window.localStorage.setItem(`moti-last-collection:${userId}`, id);
     }
   }
+
+  async function applyExtracted(photos: string[], result: ExtractedProblem[]) {
+    const collected: DraftItem[] = [];
+    for (const item of result) {
+      const photo = photos[Math.min(item.sourceIndex ?? 0, Math.max(0, photos.length - 1))] ?? photos[0];
+      let sourceImage = photo;
+      if (photo && item.bbox) {
+        try {
+          sourceImage = await cropDataUrl(photo, item.bbox, { x: 0.1, y: 0.12, bottom: 0.14 });
+        } catch {
+          sourceImage = photo;
+        }
+      }
+      collected.push({
+        ...item,
+        sourceImage,
+        figures: item.figures.map((fig) => ({ ...fig, svg: "", image: undefined })),
+      });
+    }
+    if (!collected.length) {
+      toast.error("没有识别到题目。照片还在，可以再点识别。");
+      setStage("idle");
+      return;
+    }
+    setDrafts(collected);
+    setIndex(0);
+    setStage("review");
+    jobIdRef.current = "";
+  }
+
+  async function continueJob(jobId: string, photos: string[]) {
+    const ac = new AbortController();
+    extractAbort.current = ac;
+    setStage("loading");
+    const startedAt = Date.now();
+    setProgress({
+      phase: "recognize",
+      current: 1,
+      total: Math.max(1, photos.length),
+      startedAt,
+    });
+    setBusy(true);
+    try {
+      const result = await waitForJob(jobId, ac.signal, (info) => {
+        setProgress({
+          phase: "recognize",
+          current: info.current,
+          total: info.total,
+          startedAt: info.startedAt || startedAt,
+        });
+      });
+      await applyExtracted(photos, result);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      if (error instanceof DOMException && error.name === "AbortError") {
+        toast.message("已取消识别，照片还在。");
+      } else if (/丢了|没有识别/.test(msg)) {
+        toast.error(msg || "识别还没接上，照片还在，请再点识别。");
+      } else {
+        toast.error(msg || "识别中断了。照片还在，请再点一次识别。");
+      }
+      setStage("idle");
+      jobIdRef.current = "";
+    } finally {
+      setBusy(false);
+      extractAbort.current = null;
+    }
+  }
+
+  const continueJobRef = useRef(continueJob);
+  continueJobRef.current = continueJob;
 
   async function onFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
@@ -85,8 +263,38 @@ function CapturePage() {
       toast.error("请选择 JPG 或 PNG 图片。");
       return;
     }
-    setImages((prev) => [...prev, ...next].slice(0, 8));
+    setImages((prev) => [...prev, ...next].slice(0, MAX_CAPTURE_IMAGES));
   }
+
+  const onFilesRef = useRef(onFiles);
+  onFilesRef.current = onFiles;
+
+  useEffect(() => {
+    if (stage !== "idle") return;
+    const onPaste = (event: ClipboardEvent) => {
+      const data = event.clipboardData;
+      if (!data) return;
+      const files: File[] = [];
+      for (const file of Array.from(data.files ?? [])) {
+        if (file.type.startsWith("image/")) files.push(file);
+      }
+      if (!files.length) {
+        for (const item of Array.from(data.items ?? [])) {
+          if (item.kind === "file" && item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) files.push(file);
+          }
+        }
+      }
+      if (!files.length) return;
+      event.preventDefault();
+      void onFilesRef.current(files).then(() => {
+        toast.success(files.length > 1 ? `已粘贴 ${files.length} 张` : "已粘贴图片");
+      });
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [stage]);
 
   async function runExtract() {
     if (!images.length && !text.trim()) {
@@ -96,53 +304,64 @@ function CapturePage() {
     const ac = new AbortController();
     extractAbort.current = ac;
     setStage("loading");
-    setStep(0);
-    const timer = window.setInterval(() => setStep((s) => s + 1), 2200);
+    const startedAt = Date.now();
+    setProgress({
+      phase: images.length ? "upload" : "recognize",
+      current: 1,
+      total: Math.max(1, images.length),
+      startedAt,
+    });
     setBusy(true);
     try {
-      const collected: DraftItem[] = [];
-      const sources = images.length ? images : [undefined];
-      for (const image of sources) {
+      const imageIds: string[] = [];
+      for (let i = 0; i < images.length; i++) {
         if (ac.signal.aborted) throw new DOMException("cancelled", "AbortError");
-        const result = await Promise.race([
-          extractProblem({
-            data: {
-              imageDataUrl: image,
-              text: text.trim() || undefined,
-              mode: "extract",
-            },
-          }),
-          new Promise<never>((_, reject) => {
-            const fail = () => reject(new DOMException("cancelled", "AbortError"));
-            if (ac.signal.aborted) fail();
-            else ac.signal.addEventListener("abort", fail, { once: true });
-          }),
-        ]);
-        if (!result.ok) {
-          toast.error(result.error);
-          continue;
+        setProgress({
+          phase: "upload",
+          current: i + 1,
+          total: images.length,
+          startedAt,
+        });
+        let forGrok = images[i];
+        try {
+          forGrok = await dataUrlForGrok(images[i]);
+        } catch {
+          forGrok = images[i];
         }
-        for (const item of result.results) {
-          let sourceImage = image;
-          if (image && item.bbox) {
-            try {
-              sourceImage = await cropDataUrl(image, item.bbox, { x: 0.1, y: 0.12, bottom: 0.14 });
-            } catch {
-              sourceImage = image;
-            }
-          }
-          const figures = item.figures.map((fig) => ({ ...fig, svg: "", image: undefined }));
-          collected.push({ ...item, sourceImage, figures });
-        }
+        const stashed = await stashExtractImage({ data: { imageDataUrl: forGrok } });
+        imageIds.push(stashed.id);
       }
-      if (!collected.length) {
-        toast.error("没有识别到题目。照片还在，可以再点识别。");
+      setProgress({
+        phase: "recognize",
+        current: 1,
+        total: Math.max(1, images.length),
+        startedAt,
+      });
+      const started = await startExtractJob({
+        data: {
+          imageIds: imageIds.length ? imageIds : undefined,
+          text: text.trim() || undefined,
+          mode: "extract",
+          withAnswer,
+        },
+      });
+      if (!started.ok) {
+        toast.error(started.error);
         setStage("idle");
         return;
       }
-      setDrafts(collected);
-      setIndex(0);
-      setStage("review");
+      jobIdRef.current = started.jobId;
+      writeCaptureHold({ jobId: started.jobId, images, text, collectionId, stage: "loading" });
+      void persistCaptureHold();
+      const result = await waitForJob(started.jobId, ac.signal, (info) => {
+        setProgress({
+          phase: "recognize",
+          current: info.current,
+          total: info.total,
+          startedAt: info.startedAt || startedAt,
+        });
+      });
+      await applyExtracted(images, result);
     } catch (error) {
       console.error(error);
       const msg = error instanceof Error ? error.message : "";
@@ -152,11 +371,10 @@ function CapturePage() {
       else if (/too (big|large)|payload|2800000|1500000|413/i.test(msg)) {
         toast.error("照片太大，请换一张或先裁小再识别。");
       } else {
-        toast.error("识别中断了。照片还在，请再点一次识别。");
+        toast.error(msg || "识别中断了。照片还在，请再点一次识别。");
       }
       setStage("idle");
     } finally {
-      window.clearInterval(timer);
       setBusy(false);
       extractAbort.current = null;
     }
@@ -245,12 +463,31 @@ function CapturePage() {
     return name ? `已收入「${name}」` : "已收入本子";
   }
 
+  function backToRecapture() {
+    setDrafts([]);
+    setIndex(0);
+    setStage("idle");
+    jobIdRef.current = "";
+    writeCaptureHold({
+      images,
+      text,
+      collectionId,
+      drafts: [],
+      index: 0,
+      stage: "idle",
+      jobId: "",
+    });
+    void persistCaptureHold();
+  }
+
   function resetForMore() {
     setDrafts([]);
     setImages([]);
     setText("");
     setIndex(0);
     setStage("idle");
+    jobIdRef.current = "";
+    void clearCaptureHold();
   }
 
   async function saveAll() {
@@ -277,8 +514,8 @@ function CapturePage() {
       return;
     }
     setStage("loading");
-    setStep(0);
-    const timer = window.setInterval(() => setStep((s) => s + 1), 2200);
+    const startedAt = Date.now();
+    setProgress({ phase: "recognize", current: 1, total: 1, startedAt });
     setBusy(true);
     try {
       const result = await extractProblem({
@@ -286,6 +523,7 @@ function CapturePage() {
           imageDataUrl: current.sourceImage,
           text: current.stem || undefined,
           mode: "extract",
+          withAnswer,
         },
       });
       if (!result.ok) {
@@ -316,7 +554,6 @@ function CapturePage() {
       toast.error("识别中断了，请再试一次。");
       setStage("review");
     } finally {
-      window.clearInterval(timer);
       setBusy(false);
     }
   }
@@ -329,7 +566,7 @@ function CapturePage() {
         <p className="text-sm font-medium tracking-wide text-primary">收录</p>
         <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">拍下错题</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          先选组，再连续拍。存完还在这一页，可以继续加题。
+          先选组，再连续拍。多张试卷一次识别。多道题会自动拆开。
         </p>
         <div className="mt-4">
           <CollectionPicker value={collectionId} onChange={pickCollection} />
@@ -337,7 +574,14 @@ function CapturePage() {
       </div>
 
       {stage === "loading" ? (
-        <ConstructionLoader stepIndex={step} timeoutMs={EXTRACT_TIMEOUT_MS} onCancel={cancelExtract} />
+        <ConstructionLoader
+          phase={progress?.phase ?? "recognize"}
+          current={progress?.current ?? 1}
+          total={progress?.total ?? Math.max(1, images.length)}
+          startedAt={progress?.startedAt ?? Date.now()}
+          withAnswer={withAnswer}
+          onCancel={cancelExtract}
+        />
       ) : null}
 
       {stage === "idle" ? (
@@ -388,8 +632,10 @@ function CapturePage() {
                 <span className="flex size-12 items-center justify-center rounded-full bg-secondary">
                   <ImagePlus className="size-5 text-primary" />
                 </span>
-                <span className="font-display text-lg font-semibold">拍照、多选，或拖入试卷</span>
-                <span className="text-sm text-muted-foreground">一次最多 8 张。一页多题会自动分开。</span>
+                <span className="font-display text-lg font-semibold">拍照、粘贴或拖入试卷</span>
+                <span className="text-sm text-muted-foreground">
+                  复制截图后按 Ctrl+V / ⌘V 即可。一次最多 {MAX_CAPTURE_IMAGES} 张，一页多题会自动分开。
+                </span>
               </>
             )}
           </button>
@@ -418,9 +664,22 @@ function CapturePage() {
               placeholder="粘贴题目。若照片里有图，文字可作为补充。"
             />
           </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={withAnswer}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setWithAnswer(next);
+                window.localStorage.setItem("moti-extract-with-answer", next ? "1" : "0");
+              }}
+            />
+            同时生成答案和解析（更慢）
+          </label>
           <Button size="lg" onClick={() => void runExtract()} disabled={busy}>
             {busy ? <LoaderCircle className="animate-spin" /> : null}
-            {images.length > 1 ? `识别 ${images.length} 张并拆题` : "识别题干"}
+            {images.length > 1 ? `一次识别 ${images.length} 张` : "识别题干"}
           </Button>
           {collectionId ? (
             <Button variant="ghost" onClick={() => void navigate({ to: "/", search: { g: collectionId } })}>
@@ -481,7 +740,7 @@ function CapturePage() {
             onSave={saveCurrent}
             onSaveAll={drafts.length > 1 ? saveAll : undefined}
             onRetry={reExtractCurrent}
-            onBack={() => setStage("idle")}
+            onBack={backToRecapture}
             busy={busy}
           />
         </div>

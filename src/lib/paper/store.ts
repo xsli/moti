@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PaperRow } from "./layout";
+import type { BlankLines } from "./space";
 import {
   addToBasket as addIds,
   applyTemplateRows,
@@ -46,7 +47,15 @@ interface PaperState extends PaperSession {
   addToBasket: (ids: string[]) => number;
   removeFromBasket: (id: string) => void;
   clearBasket: () => void;
-  saveTemplate: (input: { name: string; title: string; withAnswers: boolean; rows: PaperRow[]; id?: string }) => string;
+  saveTemplate: (input: {
+    name: string;
+    title: string;
+    withAnswers: boolean;
+    blankLines?: BlankLines;
+    blankAuto?: boolean;
+    rows: PaperRow[];
+    id?: string;
+  }) => string;
   deleteTemplate: (id: string) => void;
   renameTemplate: (id: string, name: string) => void;
   templateById: (id: string) => PaperTemplate | undefined;

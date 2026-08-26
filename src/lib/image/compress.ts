@@ -15,7 +15,23 @@ export function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export const fileToCompressedDataUrl = fileToDataUrl;
+export async function dataUrlForGrok(dataUrl: string): Promise<string> {
+  const bitmap = await bitmapFromDataUrl(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    return dataUrl;
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const jpeg = canvas.toDataURL("image/jpeg", 0.92);
+  return jpeg.length && jpeg.length < dataUrl.length ? jpeg : dataUrl;
+}
 
 async function bitmapFromDataUrl(dataUrl: string): Promise<ImageBitmap> {
   const res = await fetch(dataUrl);

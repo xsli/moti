@@ -338,8 +338,11 @@ export const getNotebook = createServerFn({ method: "POST" })
 
 export const bootstrapNotebook = createServerFn({ method: "POST" })
   .validator((input: unknown) => {
-    const obj = (input ?? {}) as { incoming?: unknown };
-    return { incoming: Array.isArray(obj.incoming) ? coerceProblemList(obj.incoming) : undefined };
+    const obj = (input ?? {}) as { incoming?: unknown; collections?: unknown };
+    return {
+      incoming: Array.isArray(obj.incoming) ? coerceProblemList(obj.incoming) : undefined,
+      collections: coerceCollectionList(obj.collections),
+    };
   })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
@@ -347,12 +350,15 @@ export const bootstrapNotebook = createServerFn({ method: "POST" })
       return { problems: await listForUser(context.userId), collections: await listCollections(context.userId) };
     }
     const source = data.incoming?.length ? data.incoming : [];
-    if (!source.length) {
+    if (!source.length && !data.collections.length) {
       await markInitialized(context.userId);
       return { problems: [], collections: [] };
     }
     for (const problem of source) {
       await upsertOne(context.userId, problem);
+    }
+    for (const collection of data.collections) {
+      await upsertCollectionRow(context.userId, collection);
     }
     await markInitialized(context.userId);
     return { problems: await listForUser(context.userId), collections: await listCollections(context.userId) };

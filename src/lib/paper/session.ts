@@ -1,10 +1,13 @@
 import type { PaperRow } from "./layout";
+import { coerceBlankAuto, coerceBlankLines, DEFAULT_BLANK_LINES, type BlankLines } from "./space.ts";
 
 export type PaperTemplate = {
   id: string;
   name: string;
   title: string;
   withAnswers: boolean;
+  blankLines: BlankLines;
+  blankAuto: boolean;
   rows: PaperRow[];
   createdAt: number;
   updatedAt: number;
@@ -64,6 +67,8 @@ export function parseSession(raw: unknown): PaperSession {
         name,
         title: String(row.title ?? "错题练习卷").slice(0, 40) || "错题练习卷",
         withAnswers: Boolean(row.withAnswers),
+        blankLines: coerceBlankLines(row.blankLines),
+        blankAuto: coerceBlankAuto(row.blankAuto, row.blankLines),
         rows: coerceRows(row.rows),
         createdAt: Number(row.createdAt) || Date.now(),
         updatedAt: Number(row.updatedAt) || Date.now(),
@@ -153,7 +158,15 @@ export function applyLayoutToIds(rows: PaperRow[], problemIds: string[]): PaperR
 
 export function saveTemplate(
   session: PaperSession,
-  input: { name: string; title: string; withAnswers: boolean; rows: PaperRow[]; id?: string },
+  input: {
+    name: string;
+    title: string;
+    withAnswers: boolean;
+    blankLines?: BlankLines;
+    blankAuto?: boolean;
+    rows: PaperRow[];
+    id?: string;
+  },
 ): PaperSession {
   const now = Date.now();
   const name = input.name.trim().slice(0, 40) || input.title.trim().slice(0, 40) || "未命名试卷";
@@ -162,6 +175,8 @@ export function saveTemplate(
     name,
     title: input.title.trim().slice(0, 40) || "错题练习卷",
     withAnswers: input.withAnswers,
+    blankLines: coerceBlankLines(input.blankLines ?? DEFAULT_BLANK_LINES),
+    blankAuto: Boolean(input.blankAuto),
     rows: coerceRows(input.rows),
     createdAt: now,
     updatedAt: now,

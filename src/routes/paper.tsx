@@ -13,6 +13,14 @@ import { resolveExamItems, rowsFromIds, type PaperRow } from "@/lib/paper/layout
 import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
 import { applyTemplateRows } from "@/lib/paper/session";
+import {
+  BLANK_LINE_OPTIONS,
+  blankLineLabel,
+  coerceBlankAuto,
+  coerceBlankLines,
+  DEFAULT_BLANK_LINES,
+  type BlankLines,
+} from "@/lib/paper/space";
 import { usePaperStore } from "@/lib/paper/store";
 import { formatLoggedDateLong, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { useProblemStore } from "@/lib/problems/store";
@@ -46,6 +54,8 @@ function PaperPage() {
   const [rows, setRows] = useState<PaperRow[]>([]);
   const [title, setTitle] = useState("错题练习卷");
   const [withAnswers, setWithAnswers] = useState(false);
+  const [blankLines, setBlankLines] = useState<BlankLines>(DEFAULT_BLANK_LINES);
+  const [blankAuto, setBlankAuto] = useState(false);
   const [step, setStep] = useState<"arrange" | "preview">("arrange");
 
   useEffect(() => {
@@ -60,12 +70,16 @@ function PaperPage() {
       setRows(nextRows.length ? nextRows : rowsFromIds(selectedIds));
       setTitle(template.title || "错题练习卷");
       setWithAnswers(template.withAnswers);
+      setBlankLines(coerceBlankLines(template.blankLines));
+      setBlankAuto(coerceBlankAuto(template.blankAuto, template.blankLines));
       setStep("arrange");
       return;
     }
     setRows(rowsFromIds(selectedIds));
     setTitle("错题练习卷");
     setWithAnswers(false);
+    setBlankLines(DEFAULT_BLANK_LINES);
+    setBlankAuto(false);
     setStep("arrange");
   }, [idsKey, tpl, tplStamp, selectedIds]);
 
@@ -92,9 +106,11 @@ function PaperPage() {
         rows={rows}
         problems={selected}
         onChange={setRows}
-        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers }) => {
+        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers, blankLines: nextBlank, blankAuto: nextAuto }) => {
           setTitle(nextTitle);
           setWithAnswers(nextAnswers);
+          setBlankLines(nextBlank);
+          setBlankAuto(nextAuto);
         }}
         onNext={() => setStep("preview")}
         onBack={() => navigate({ to: "/paper", search: { ids: "", tpl: "" } })}
@@ -108,8 +124,12 @@ function PaperPage() {
       rows={rows}
       title={title}
       withAnswers={withAnswers}
+      blankLines={blankLines}
+      blankAuto={blankAuto}
       onTitle={setTitle}
       onAnswers={setWithAnswers}
+      onBlankLines={setBlankLines}
+      onBlankAuto={setBlankAuto}
       onBack={() => setStep("arrange")}
     />
   );
@@ -360,16 +380,24 @@ function PaperPreview({
   rows,
   title,
   withAnswers,
+  blankLines,
+  blankAuto,
   onTitle,
   onAnswers,
+  onBlankLines,
+  onBlankAuto,
   onBack,
 }: {
   items: ReturnType<typeof resolveExamItems>;
   rows: PaperRow[];
   title: string;
   withAnswers: boolean;
+  blankLines: BlankLines;
+  blankAuto: boolean;
   onTitle: (value: string) => void;
   onAnswers: (value: boolean) => void;
+  onBlankLines: (value: BlankLines) => void;
+  onBlankAuto: (value: boolean) => void;
   onBack: () => void;
 }) {
   const saveTemplate = usePaperStore((s) => s.saveTemplate);
@@ -380,7 +408,7 @@ function PaperPreview({
   const dateLabel = formatLoggedDateLong(Date.now());
 
   function downloadTex() {
-    const tex = buildExamLatex(items, { title, dateLabel, withAnswers });
+    const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto });
     const blob = new Blob([tex], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -493,6 +521,30 @@ function PaperPreview({
             />
             解析版
           </label>
+          <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+            答题留白
+            <select
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              value={blankLines}
+              disabled={withAnswers}
+              onChange={(e) => onBlankLines(coerceBlankLines(e.target.value))}
+            >
+              {BLANK_LINE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {blankLineLabel(n)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+            <input
+              type="checkbox"
+              checked={blankAuto}
+              disabled={withAnswers}
+              onChange={(e) => onBlankAuto(e.target.checked)}
+            />
+            自动估（没答案就用上面行数）
+          </label>
         </div>
         <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
@@ -504,7 +556,7 @@ function PaperPreview({
             variant="outline"
             className="sm:mt-5"
             onClick={() => {
-              saveTemplate({ name: tplName, title, withAnswers, rows });
+              saveTemplate({ name: tplName, title, withAnswers, blankLines, blankAuto, rows });
               toast.success("模板已保存，组卷页可以打开");
             }}
           >
@@ -514,7 +566,14 @@ function PaperPreview({
       </div>
 
       <div className="exam-preview-wrap">
-        <ExamSheet title={title} dateLabel={dateLabel} items={items} withAnswers={withAnswers} />
+        <ExamSheet
+          title={title}
+          dateLabel={dateLabel}
+          items={items}
+          withAnswers={withAnswers}
+          blankLines={blankLines}
+          blankAuto={blankAuto}
+        />
       </div>
     </div>
   );

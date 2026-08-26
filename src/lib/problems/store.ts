@@ -41,12 +41,12 @@ function isUnauthorized(error: unknown): boolean {
 
 function persist(userId: string | null, problems: Problem[], collections: Collection[], allowEmpty = false) {
   if (!userId) return;
-  if (!problems.length && !allowEmpty) {
-    const existing = readCachedNotebook(userId);
-    if (existing.problems.length) {
-      writeCachedProblems(userId, existing.problems, collections.length ? collections : existing.collections);
-      return;
-    }
+  const existing = readCachedNotebook(userId);
+  if (!problems.length && !allowEmpty && existing.problems.length) {
+    problems = existing.problems;
+  }
+  if (!collections.length && !allowEmpty && existing.collections.length) {
+    collections = existing.collections;
   }
   writeCachedProblems(userId, problems, collections);
 }
@@ -97,7 +97,7 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
 
       if (!notebook.initialized) {
         const bootstrapped = await bootstrapNotebook({
-          data: { incoming: local.length ? local : undefined },
+          data: { incoming: local.length ? local : undefined, collections: localCols.length ? localCols : undefined },
         });
         problems = mergeProblems(bootstrapped.problems, local);
         collections = mergeCollections(bootstrapped.collections ?? [], localCols);
@@ -114,10 +114,21 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       }
 
       if (!problems.length && local.length) problems = local;
+      if (!collections.length && localCols.length) collections = localCols;
       const missingCols = localCols.filter((item) => !collections.some((row) => row.id === item.id));
-      if (missingCols.length || (localCols.length && !(notebook.collections ?? []).length)) {
+      const serverCols = notebook.collections ?? [];
+      if (missingCols.length || (localCols.length && !serverCols.length)) {
         const pushed = await pushCollectionsFn({ data: { collections } });
         collections = mergeCollections(pushed.collections, collections);
+      }
+      const groupedLocal = problems.filter((item) => item.collectionId);
+      const strippedOnServer = groupedLocal.filter((item) => {
+        const row = notebook.problems.find((p) => p.id === item.id);
+        return !row?.collectionId;
+      });
+      if (strippedOnServer.length) {
+        const { pushProblems: pushAgain } = await import("./api");
+        await pushAgain({ data: { problems: strippedOnServer } });
       }
 
       persist(userId, problems, collections);

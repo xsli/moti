@@ -1,5 +1,29 @@
 import type { Problem } from "@/lib/problems/types";
 
+export const BLANK_LINE_OPTIONS = [2, 3, 4, 5, 6, 8] as const;
+export type BlankLines = (typeof BLANK_LINE_OPTIONS)[number];
+
+export const DEFAULT_BLANK_LINES: BlankLines = 5;
+
+export function coerceBlankLines(value: unknown): BlankLines {
+  const n = Math.round(Number(value));
+  if (n === 0) return DEFAULT_BLANK_LINES;
+  return (BLANK_LINE_OPTIONS as readonly number[]).includes(n) ? (n as BlankLines) : DEFAULT_BLANK_LINES;
+}
+
+export function coerceBlankAuto(value: unknown, blankLinesRaw?: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  return Math.round(Number(blankLinesRaw)) === 0;
+}
+
+export function blankLineLabel(lines: BlankLines): string {
+  return `${lines} 行`;
+}
+
+export function hasWrittenAnswer(problem: Problem): boolean {
+  return Boolean(problem.correctAnswer?.trim() || problem.analysis?.trim());
+}
+
 function answerPlain(raw: string) {
   return raw
     .replace(/\$\$[\s\S]*?\$\$/g, "公式")
@@ -21,6 +45,15 @@ export function answerHeightMm(problem: Problem): number {
   if (plain.length <= 80 && paras <= 4) return 24;
   if (plain.length <= 160) return 36;
   return 48;
+}
+
+export function blankHeightMm(problem: Problem, lines: BlankLines, auto = false): number {
+  if (auto && hasWrittenAnswer(problem)) return answerHeightMm(problem);
+  return Math.round(lines * 7);
+}
+
+export function blankHeightCm(problem: Problem, lines: BlankLines, auto = false): string {
+  return `${(blankHeightMm(problem, lines, auto) / 10).toFixed(1)}cm`;
 }
 
 export function answerHeightCm(problem: Problem): string {

@@ -30,6 +30,24 @@ function hasGlobbedMigrations(root: string): boolean {
  * migrations — no schema to apply — skips it entirely rather than paying for a
  * PGLite instance it never queries.
  */
+function longRequestPlugin(): Plugin {
+  return {
+    name: "app-builder:long-requests",
+    apply: "serve",
+    configureServer(server) {
+      const apply = () => {
+        const http = server.httpServer;
+        if (!http) return;
+        http.timeout = 0;
+        http.headersTimeout = 0;
+        http.requestTimeout = 0;
+      };
+      apply();
+      server.httpServer?.once("listening", apply);
+    },
+  };
+}
+
 function pgliteBootstrapPlugin(): Plugin {
   return {
     name: "app-builder:pglite-bootstrap",
@@ -158,6 +176,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     pgliteBootstrapPlugin(),
+    longRequestPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
