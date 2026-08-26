@@ -1,8 +1,12 @@
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { type PointerEvent, useRef, useState } from "react";
+import { toast } from "sonner";
+import { LayoutPick } from "@/components/paper/layout-pick";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { chineseOrdinal, paperTotal, reorderRows, sectionCount, type PaperRow } from "@/lib/paper/layout";
+import { applyLayoutToIds, idsFromRows } from "@/lib/paper/session";
+import { usePaperStore } from "@/lib/paper/store";
 import type { Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
@@ -12,24 +16,36 @@ export function ArrangeList({
   rows,
   problems,
   onChange,
+  onApplyMeta,
   onNext,
   onBack,
 }: {
   rows: PaperRow[];
   problems: Problem[];
   onChange: (rows: PaperRow[]) => void;
+  onApplyMeta?: (meta: { title: string; withAnswers: boolean }) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [layoutId, setLayoutId] = useState("");
+  const templates = usePaperStore((s) => s.templates);
   const byId = new Map(problems.map((p) => [p.id, p]));
   const problemCount = rows.filter((row) => row.kind === "problem").length;
   const total = paperTotal(rows);
 
   function addHeading(title = "填空题") {
     onChange([{ kind: "heading", id: crypto.randomUUID(), title, perScore: 4 }, ...rows]);
+  }
+
+  function applyLayout() {
+    const template = templates.find((item) => item.id === layoutId);
+    if (!template) return;
+    onChange(applyLayoutToIds(template.rows, idsFromRows(rows)));
+    onApplyMeta?.({ title: template.title, withAnswers: template.withAnswers });
+    toast.success(`已套用「${template.name}」，可继续改`);
   }
 
   function dropIndex(clientY: number) {
@@ -92,6 +108,14 @@ export function ArrangeList({
           <Plus className="size-4" />
           自定义标题
         </Button>
+        {templates.length ? (
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <LayoutPick value={layoutId} onChange={setLayoutId} />
+            <Button type="button" size="sm" disabled={!layoutId} onClick={applyLayout}>
+              套用
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <ul ref={listRef} className="flex flex-col gap-2">

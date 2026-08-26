@@ -1,3 +1,4 @@
+import { coerceCollectionList, type Collection } from "./collections";
 import { coerceProblemList } from "./coerce";
 import { readLegacyProblems } from "./legacy";
 import type { Problem } from "./types";
@@ -8,21 +9,28 @@ function keyFor(userId: string): string {
   return `${CACHE_PREFIX}${userId}`;
 }
 
-export function readCachedProblems(userId: string): Problem[] {
-  if (typeof window === "undefined" || !userId) return [];
+export function readCachedNotebook(userId: string): { problems: Problem[]; collections: Collection[] } {
+  if (typeof window === "undefined" || !userId) return { problems: [], collections: [] };
   try {
     const raw = window.localStorage.getItem(keyFor(userId));
-    if (!raw) return readLegacyProblems();
-    const parsed = JSON.parse(raw) as { problems?: unknown };
+    if (!raw) return { problems: readLegacyProblems(), collections: [] };
+    const parsed = JSON.parse(raw) as { problems?: unknown; collections?: unknown };
     const cached = coerceProblemList(parsed.problems);
-    if (cached.length) return cached;
-    return readLegacyProblems();
+    const collections = coerceCollectionList(parsed.collections);
+    return {
+      problems: cached.length ? cached : readLegacyProblems(),
+      collections,
+    };
   } catch {
-    return readLegacyProblems();
+    return { problems: readLegacyProblems(), collections: [] };
   }
 }
 
-export function writeCachedProblems(userId: string, problems: Problem[]): void {
+export function readCachedProblems(userId: string): Problem[] {
+  return readCachedNotebook(userId).problems;
+}
+
+export function writeCachedProblems(userId: string, problems: Problem[], collections: Collection[] = []): void {
   if (typeof window === "undefined" || !userId) return;
   const slim = problems.map((p) => ({
     ...p,
@@ -30,7 +38,10 @@ export function writeCachedProblems(userId: string, problems: Problem[]): void {
     figures: p.figures.map((f) => ({ ...f, image: undefined, svg: "" })),
   }));
   try {
-    window.localStorage.setItem(keyFor(userId), JSON.stringify({ problems: slim, savedAt: Date.now() }));
+    window.localStorage.setItem(
+      keyFor(userId),
+      JSON.stringify({ problems: slim, collections, savedAt: Date.now() }),
+    );
   } catch {
     /* quota */
   }

@@ -79,6 +79,7 @@ export function coerceProblem(raw: unknown): Problem | null {
     mastery,
     reviewCount: Math.min(999, Math.max(0, Math.round(asNumber(item.reviewCount)))),
     nextReviewAt: asNumber(item.nextReviewAt, Date.now()),
+    collectionId: asString(item.collectionId).slice(0, 80) || undefined,
   };
 }
 

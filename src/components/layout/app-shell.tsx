@@ -1,9 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { BookOpen, Camera, FileText, RotateCcw } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { Logo } from "@/components/brand/logo";
 import { AuthSlot } from "@/components/layout/auth-slot";
 import { Button } from "@/components/ui/button";
+import { usePaperStore } from "@/lib/paper/store";
+import { useProblemStore } from "@/lib/problems/store";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -15,6 +17,13 @@ const NAV = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const userId = useProblemStore((s) => s.userId);
+  const basketCount = usePaperStore((s) => s.basket.length);
+  const hydratePaper = usePaperStore((s) => s.hydrate);
+
+  useEffect(() => {
+    hydratePaper(userId ?? "guest");
+  }, [userId, hydratePaper]);
 
   return (
     <div className="paper-wash min-h-dvh">
@@ -31,11 +40,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "relative rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     active ? "bg-secondary text-fg" : "text-muted-foreground hover:bg-secondary/70 hover:text-fg",
                   )}
                 >
                   {item.label}
+                  {item.to === "/paper" && basketCount ? (
+                    <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground">
+                      {basketCount}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -66,12 +80,17 @@ export function AppShell({ children }: { children: ReactNode }) {
                 >
                   <span
                     className={cn(
-                      "flex size-9 items-center justify-center rounded-full",
+                      "relative flex size-9 items-center justify-center rounded-full",
                       isCapture && "bg-primary text-primary-foreground",
                       isCapture && !active && "opacity-90",
                     )}
                   >
                     <Icon className="size-4" />
+                    {item.to === "/paper" && basketCount ? (
+                      <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground">
+                        {basketCount}
+                      </span>
+                    ) : null}
                   </span>
                   {item.label}
                 </Link>

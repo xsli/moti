@@ -2,28 +2,33 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrangeList } from "@/components/paper/arrange-list";
-import { ExamSheet } from "@/components/paper/exam-sheet";
 import { ProblemCard } from "@/components/notebook/problem-card";
+import { ArrangeList } from "@/components/paper/arrange-list";
+import { BasketBar } from "@/components/paper/basket-bar";
+import { ExamSheet } from "@/components/paper/exam-sheet";
+import { TemplateList } from "@/components/paper/template-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { resolveExamItems, rowsFromIds, type PaperRow } from "@/lib/paper/layout";
 import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
+import { applyTemplateRows } from "@/lib/paper/session";
+import { usePaperStore } from "@/lib/paper/store";
 import { formatLoggedDateLong, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { useProblemStore } from "@/lib/problems/store";
-import { SUBJECT_LABEL, SUBJECTS, type Problem, type Subject } from "@/lib/problems/types";
+import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
   validateSearch: (search: Record<string, unknown>) => ({
     ids: typeof search.ids === "string" ? search.ids : "",
+    tpl: typeof search.tpl === "string" ? search.tpl : "",
   }),
   component: PaperPage,
 });
 
 function PaperPage() {
-  const { ids } = Route.useSearch();
+  const { ids, tpl } = Route.useSearch();
   const navigate = useNavigate();
   const problems = useProblemStore((s) => s.problems);
   const loadProblem = useProblemStore((s) => s.loadProblem);
@@ -33,7 +38,14 @@ function PaperPage() {
     [selectedIds, problems],
   );
   const idsKey = selectedIds.join(",");
+  const tplStamp = usePaperStore((s) => {
+    if (!tpl) return "";
+    const item = s.templates.find((row) => row.id === tpl);
+    return item ? `${item.id}:${item.updatedAt}` : "pending";
+  });
   const [rows, setRows] = useState<PaperRow[]>([]);
+  const [title, setTitle] = useState("错题练习卷");
+  const [withAnswers, setWithAnswers] = useState(false);
   const [step, setStep] = useState<"arrange" | "preview">("arrange");
 
   useEffect(() => {
@@ -41,9 +53,21 @@ function PaperPage() {
   }, [selectedIds, loadProblem]);
 
   useEffect(() => {
+    const template = usePaperStore.getState().templates.find((item) => item.id === tpl);
+    if (template) {
+      const available = new Set(selectedIds);
+      const nextRows = applyTemplateRows(template.rows, available);
+      setRows(nextRows.length ? nextRows : rowsFromIds(selectedIds));
+      setTitle(template.title || "错题练习卷");
+      setWithAnswers(template.withAnswers);
+      setStep("arrange");
+      return;
+    }
     setRows(rowsFromIds(selectedIds));
+    setTitle("错题练习卷");
+    setWithAnswers(false);
     setStep("arrange");
-  }, [idsKey]);
+  }, [idsKey, tpl, tplStamp, selectedIds]);
 
   if (!selectedIds.length) {
     return <PaperPicker />;
@@ -54,7 +78,7 @@ function PaperPage() {
       <div className="mx-auto max-w-lg py-16 text-center">
         <p className="font-display text-2xl font-semibold">这些题目不在本子里</p>
         <Button asChild className="mt-6" variant="outline">
-          <Link to="/paper" search={{ ids: "" }}>
+          <Link to="/paper" search={{ ids: "", tpl: "" }}>
             重新选题
           </Link>
         </Button>
@@ -68,8 +92,12 @@ function PaperPage() {
         rows={rows}
         problems={selected}
         onChange={setRows}
+        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers }) => {
+          setTitle(nextTitle);
+          setWithAnswers(nextAnswers);
+        }}
         onNext={() => setStep("preview")}
-        onBack={() => navigate({ to: "/paper", search: { ids: "" } })}
+        onBack={() => navigate({ to: "/paper", search: { ids: "", tpl: "" } })}
       />
     );
   }
@@ -77,6 +105,11 @@ function PaperPage() {
   return (
     <PaperPreview
       items={resolveExamItems(rows, selected)}
+      rows={rows}
+      title={title}
+      withAnswers={withAnswers}
+      onTitle={setTitle}
+      onAnswers={setWithAnswers}
       onBack={() => setStep("arrange")}
     />
   );
@@ -85,6 +118,7 @@ function PaperPage() {
 function PaperPicker() {
   const problems = useProblemStore((s) => s.problems);
   const navigate = useNavigate();
+  const addToBasket = usePaperStore((s) => s.addToBasket);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [filter, setFilter] = useState<"all" | Subject>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -145,8 +179,11 @@ function PaperPicker() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-3xl font-semibold">组卷</h1>
-        <p className="mt-1 text-sm text-muted-foreground">先筛选再勾选。换筛选或关掉筛选，已选的题都会留着。</p>
+        <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。筛选不影响已选。</p>
       </div>
+
+      <BasketBar />
+      <TemplateList />
 
       <div className="flex flex-col gap-3">
         <div className="relative">
@@ -257,14 +294,26 @@ function PaperPicker() {
               清空已选
             </button>
           ) : null}
-          <Button
-            className="ml-auto"
-            size="sm"
-            disabled={!picked.size}
-            onClick={() => navigate({ to: "/paper", search: { ids: [...picked].join(",") } })}
-          >
-            预览试卷
-          </Button>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!picked.size}
+              onClick={() => {
+                const n = addToBasket([...picked]);
+                toast.success(n ? `已放入组卷篮 ${n} 道` : "这些题已在篮子里");
+              }}
+            >
+              加入组卷篮
+            </Button>
+            <Button
+              size="sm"
+              disabled={!picked.size}
+              onClick={() => navigate({ to: "/paper", search: { ids: [...picked].join(","), tpl: "" } })}
+            >
+              去排版
+            </Button>
+          </div>
         </div>
         {hiddenPicked.length ? (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
@@ -306,9 +355,25 @@ function PaperPicker() {
   );
 }
 
-function PaperPreview({ items, onBack }: { items: ReturnType<typeof resolveExamItems>; onBack: () => void }) {
-  const [title, setTitle] = useState("错题练习卷");
-  const [withAnswers, setWithAnswers] = useState(false);
+function PaperPreview({
+  items,
+  rows,
+  title,
+  withAnswers,
+  onTitle,
+  onAnswers,
+  onBack,
+}: {
+  items: ReturnType<typeof resolveExamItems>;
+  rows: PaperRow[];
+  title: string;
+  withAnswers: boolean;
+  onTitle: (value: string) => void;
+  onAnswers: (value: boolean) => void;
+  onBack: () => void;
+}) {
+  const saveTemplate = usePaperStore((s) => s.saveTemplate);
+  const [tplName, setTplName] = useState(title);
   const [exporting, setExporting] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const pdfBlob = useRef<Blob | null>(null);
@@ -400,7 +465,7 @@ function PaperPreview({ items, onBack }: { items: ReturnType<typeof resolveExamI
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={onBack}>
-              返回选题
+              返回排版
             </Button>
             <Button variant="outline" onClick={downloadTex}>
               下载 TeX
@@ -418,16 +483,33 @@ function PaperPreview({ items, onBack }: { items: ReturnType<typeof resolveExamI
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
             卷名
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} onChange={(e) => onTitle(e.target.value)} />
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={withAnswers}
-              onChange={(e) => setWithAnswers(e.target.checked)}
+              onChange={(e) => onAnswers(e.target.checked)}
             />
             解析版
           </label>
+        </div>
+        <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            存为模板
+            <Input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="周六数学卷" />
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            className="sm:mt-5"
+            onClick={() => {
+              saveTemplate({ name: tplName, title, withAnswers, rows });
+              toast.success("模板已保存，组卷页可以打开");
+            }}
+          >
+            保存模板
+          </Button>
         </div>
       </div>
 

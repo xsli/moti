@@ -1,10 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Search } from "lucide-react";
+import { ArrowLeft, FolderOpen, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Logo } from "@/components/brand/logo";
+import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { ProblemCard } from "@/components/notebook/problem-card";
 import { TagEditor } from "@/components/notebook/tag-editor";
+import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,23 +18,39 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  COLLECTION_KIND_LABEL,
+  defaultCollectionName,
+} from "@/lib/problems/collections";
 import { matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
+import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
 import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): { g?: string } => {
+    const g = typeof search.g === "string" ? search.g : "";
+    return g ? { g } : {};
+  },
+  component: Home,
+});
 
 type Filter = "all" | "due" | Subject;
 
 function Home() {
+  const { g = "" } = Route.useSearch();
   const problems = useProblemStore((s) => s.problems);
+  const collections = useProblemStore((s) => s.collections);
+  const deleteCollection = useProblemStore((s) => s.deleteCollection);
+  const addCollection = useProblemStore((s) => s.addCollection);
   const status = useProblemStore((s) => s.status);
   const error = useProblemStore((s) => s.error);
   const userId = useProblemStore((s) => s.userId);
   const hydrate = useProblemStore((s) => s.hydrate);
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
+  const addToBasket = usePaperStore((s) => s.addToBasket);
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -41,9 +59,11 @@ function Home() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tagOpen, setTagOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [commonTags, setCommonTags] = useState<string[]>([]);
+  const [batchGroupId, setBatchGroupId] = useState("");
   const [busy, setBusy] = useState(false);
 
   const dueCount = useMemo(() => selectDueProblems(problems).length, [problems]);
@@ -55,6 +75,8 @@ function Home() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return problems.filter((p) => {
+      if (g === "ungrouped" && p.collectionId) return false;
+      if (g && g !== "all" && g !== "ungrouped" && p.collectionId !== g) return false;
       if (filter === "due") {
         if (p.mastery === "mastered" || p.nextReviewAt > Date.now()) return false;
       } else if (filter !== "all" && p.subject !== filter) {
@@ -65,7 +87,7 @@ function Home() {
       const hay = `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [problems, filter, query, dateFilter, dateDay]);
+  }, [problems, filter, query, dateFilter, dateDay, g]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -80,7 +102,6 @@ function Home() {
   ];
 
   const selectedCount = selected.size;
-  const allVisibleSelected = visible.length > 0 && visible.every((p) => selected.has(p.id));
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -121,6 +142,24 @@ function Home() {
     }
   }
 
+  async function applyGroup() {
+    if (!selectedCount) return;
+    setBusy(true);
+    try {
+      const nextId = batchGroupId || undefined;
+      for (const problem of problems) {
+        if (!selected.has(problem.id)) continue;
+        if ((problem.collectionId || "") === (nextId || "")) continue;
+        await updateProblem(problem.id, { collectionId: nextId });
+      }
+      const name = collections.find((item) => item.id === batchGroupId)?.name;
+      toast.success(name ? `已改到「${name}」` : "已移到未分组");
+      setGroupOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeSelected() {
     setBusy(true);
     try {
@@ -146,7 +185,48 @@ function Home() {
         </div>
       </section>
 
+      <BasketBar />
+
+      {!g ? (
+        <GroupHome
+          problems={problems}
+          collections={collections}
+          dueCount={dueCount}
+          onCreate={async () => {
+            const id = await addCollection({ name: defaultCollectionName(), kind: "exam" });
+            navigate({ to: "/", search: { g: id } });
+          }}
+          onDelete={(id) => void deleteCollection(id)}
+        />
+      ) : (
+      <>
       <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/" search={{ g: "" }}>
+              <ArrowLeft className="size-4" />
+              分组
+            </Link>
+          </Button>
+          <h2 className="font-display text-xl font-semibold">
+            {g === "all" ? "全部题目" : g === "ungrouped" ? "未分组" : collections.find((item) => item.id === g)?.name || "分组"}
+          </h2>
+          {g && g !== "all" && g !== "ungrouped" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              onClick={() =>
+                navigate({
+                  to: "/paper",
+                  search: { ids: problems.filter((p) => p.collectionId === g).map((p) => p.id).join(","), tpl: "" },
+                })
+              }
+            >
+              本组组卷
+            </Button>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -170,23 +250,18 @@ function Home() {
             <button
               type="button"
               className="text-sm text-muted-foreground hover:text-fg"
-              onClick={() => {
-                if (allVisibleSelected) {
-                  setSelected((prev) => {
-                    const next = new Set(prev);
-                    for (const p of visible) next.delete(p.id);
-                    return next;
-                  });
-                } else {
-                  setSelected((prev) => {
-                    const next = new Set(prev);
-                    for (const p of visible) next.add(p.id);
-                    return next;
-                  });
-                }
-              }}
+              onClick={() => setSelected(new Set(visible.map((p) => p.id)))}
+              disabled={!visible.length}
             >
-              {allVisibleSelected ? "取消全选" : "全选"}
+              全部选中
+            </button>
+            <button
+              type="button"
+              className="text-sm text-muted-foreground hover:text-fg"
+              onClick={() => setSelected(new Set())}
+              disabled={!selectedCount}
+            >
+              全部不选
             </button>
             <span className="text-sm text-muted-foreground">已选 {selectedCount}</span>
             <div className="ml-auto flex flex-wrap gap-2">
@@ -194,8 +269,19 @@ function Home() {
                 size="sm"
                 variant="outline"
                 disabled={!selectedCount}
+                onClick={() => {
+                  const n = addToBasket([...selected]);
+                  toast.success(n ? `已放入组卷篮 ${n} 道` : "这些题已在篮子里");
+                }}
+              >
+                加入组卷篮
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedCount}
                 onClick={() =>
-                  navigate({ to: "/paper", search: { ids: [...selected].join(",") } })
+                  navigate({ to: "/paper", search: { ids: [...selected].join(","), tpl: "" } })
                 }
               >
                 组卷
@@ -215,6 +301,19 @@ function Home() {
                 }}
               >
                 改标签
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedCount}
+                onClick={() => {
+                  const ids = problems.filter((p) => selected.has(p.id)).map((p) => p.collectionId || "");
+                  const same = ids.length && ids.every((id) => id === ids[0]);
+                  setBatchGroupId(same ? ids[0] : "");
+                  setGroupOpen(true);
+                }}
+              >
+                修改分组
               </Button>
               <Button
                 size="sm"
@@ -347,6 +446,24 @@ function Home() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={groupOpen} onOpenChange={setGroupOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改分组</DialogTitle>
+            <DialogDescription>把已选的 {selectedCount} 道题放到同一组，或移到未分组。</DialogDescription>
+          </DialogHeader>
+          <CollectionPicker value={batchGroupId} onChange={setBatchGroupId} label="放到" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGroupOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void applyGroup()} disabled={busy}>
+              完成
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -363,6 +480,95 @@ function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>
+    )}
+    </div>
+  );
+}
+
+function GroupHome({
+  problems,
+  collections,
+  dueCount,
+  onCreate,
+  onDelete,
+}: {
+  problems: { id: string; collectionId?: string; mastery: string; nextReviewAt: number }[];
+  collections: { id: string; name: string; kind: "exam" | "unit" | "lesson" | "custom" }[];
+  dueCount: number;
+  onCreate: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const now = Date.now();
+  const ungrouped = problems.filter((p) => !p.collectionId);
+  const dueOf = (ids: Set<string> | "none" | "all") =>
+    problems.filter((p) => {
+      if (p.mastery === "mastered" || p.nextReviewAt > now) return false;
+      if (ids === "all") return true;
+      if (ids === "none") return !p.collectionId;
+      return !!p.collectionId && ids.has(p.collectionId);
+    }).length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">按试卷或单元查看，拍题时选组即可连续收录。</p>
+        <Button size="sm" variant="outline" onClick={onCreate}>
+          新建组
+        </Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Link
+          to="/"
+          search={{ g: "all" }}
+          className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-colors hover:bg-secondary/40"
+        >
+          <p className="text-xs text-muted-foreground">全部</p>
+          <p className="mt-1 font-display text-lg font-semibold">{problems.length} 道</p>
+          <p className="mt-1 text-xs text-muted-foreground">待复习 {dueCount}</p>
+        </Link>
+        {ungrouped.length ? (
+          <Link
+            to="/"
+            search={{ g: "ungrouped" }}
+            className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-colors hover:bg-secondary/40"
+          >
+            <p className="text-xs text-muted-foreground">未分组</p>
+            <p className="mt-1 font-display text-lg font-semibold">{ungrouped.length} 道</p>
+            <p className="mt-1 text-xs text-muted-foreground">待复习 {dueOf("none")}</p>
+          </Link>
+        ) : null}
+        {collections.map((item) => {
+          const count = problems.filter((p) => p.collectionId === item.id).length;
+          return (
+            <div key={item.id} className="relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+              <Link to="/" search={{ g: item.id }} className="block pr-8">
+                <p className="text-xs text-muted-foreground">{COLLECTION_KIND_LABEL[item.kind]}</p>
+                <p className="mt-1 font-display text-lg font-semibold">{item.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {count} 道 · 待复习 {dueOf(new Set([item.id]))}
+                </p>
+              </Link>
+              <button
+                type="button"
+                className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
+                onClick={() => onDelete(item.id)}
+              >
+                删除
+              </button>
+            </div>
+          );
+        })}
+        {!collections.length && !ungrouped.length && !problems.length ? (
+          <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)] sm:col-span-2">
+            <FolderOpen className="mx-auto size-8 text-muted-foreground" />
+            <p className="mt-3 font-display text-lg font-semibold">还没有分组</p>
+            <Button asChild className="mt-4">
+              <Link to="/capture">去拍题</Link>
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

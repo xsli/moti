@@ -82,6 +82,7 @@ const EXAM_CSS = `
   line-height: 1.45;
 }
 .exam-title {
+  position: relative;
   margin: 0;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   font-size: 16pt;
@@ -94,6 +95,18 @@ const EXAM_CSS = `
   padding: 0 0.7em 1pt;
   border-bottom: 1.15pt solid #1a1814;
   letter-spacing: 0.28em;
+}
+.exam-analysis-mark {
+  position: absolute;
+  margin-left: 8pt;
+  padding: 1pt 6pt 0;
+  border: 0.65pt solid #1d4ed8;
+  color: #1d4ed8;
+  font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
+  font-size: 9pt;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
 }
 .exam-meta {
   display: flex;
@@ -398,6 +411,7 @@ function ExamLogo() {
 function CoverHead({
   title,
   headingCount,
+  analysis,
 }: {
   title: string;
   headingCount: number;
@@ -409,6 +423,7 @@ function CoverHead({
       <header className="exam-head">
         <h1 className="exam-title">
           <span className="exam-course">{title}</span>
+          {analysis ? <span className="exam-analysis-mark">解析</span> : null}
         </h1>
       </header>
       <div className="exam-meta">
@@ -610,7 +625,7 @@ export function ExamSheet({
               <BlockView key={`${block.kind}-${i}`} block={block} blank={!withAnswers} />
             ))}
             <div className="exam-page-no">
-              {title}试卷　第 {pageIndex + 1} 页　共 {pages.length} 页
+              {title}　第 {pageIndex + 1} 页　共 {pages.length} 页
             </div>
           </article>
         ))}

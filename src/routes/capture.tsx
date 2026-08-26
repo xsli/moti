@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ImagePlus, LoaderCircle, Type, Upload, X } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConstructionLoader } from "@/components/capture/construction-loader";
+import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { TagEditor } from "@/components/notebook/tag-editor";
@@ -37,6 +38,9 @@ function CapturePage() {
   const navigate = useNavigate();
   const addProblem = useProblemStore((s) => s.addProblem);
   const problems = useProblemStore((s) => s.problems);
+  const collections = useProblemStore((s) => s.collections);
+  const userId = useProblemStore((s) => s.userId);
+  const [collectionId, setCollectionId] = useState("");
   const notebookTags = useMemo(() => {
     const set = new Set<string>();
     for (const p of problems) for (const t of p.tags) set.add(t);
@@ -52,6 +56,19 @@ function CapturePage() {
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   const extractAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!userId || typeof window === "undefined") return;
+    const last = window.localStorage.getItem(`moti-last-collection:${userId}`) ?? "";
+    if (last) setCollectionId(last);
+  }, [userId]);
+
+  function pickCollection(id: string) {
+    setCollectionId(id);
+    if (userId && typeof window !== "undefined") {
+      window.localStorage.setItem(`moti-last-collection:${userId}`, id);
+    }
+  }
 
   async function onFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
@@ -201,6 +218,7 @@ function CapturePage() {
       mastery: "new",
       reviewCount: 0,
       nextReviewAt: Date.now(),
+      collectionId: collectionId || undefined,
     });
   }
 
@@ -208,12 +226,31 @@ function CapturePage() {
     const item = drafts[index];
     if (!item) return;
     try {
-      const id = await saveOne(item);
-      toast.success("已收入这一道");
-      void navigate({ to: "/p/$id", params: { id } });
+      await saveOne(item);
+      const remain = drafts.filter((_, i) => i !== index);
+      toast.success(collectionLabel());
+      if (!remain.length) {
+        resetForMore();
+        return;
+      }
+      setDrafts(remain);
+      setIndex(Math.min(index, remain.length - 1));
     } catch {
       /* store already toasted */
     }
+  }
+
+  function collectionLabel() {
+    const name = collections.find((item) => item.id === collectionId)?.name;
+    return name ? `已收入「${name}」` : "已收入本子";
+  }
+
+  function resetForMore() {
+    setDrafts([]);
+    setImages([]);
+    setText("");
+    setIndex(0);
+    setStage("idle");
   }
 
   async function saveAll() {
@@ -223,8 +260,8 @@ function CapturePage() {
       for (const item of drafts) {
         await saveOne(item);
       }
-      toast.success(`已收入 ${drafts.length} 道错题，每题单独一页`);
-      void navigate({ to: "/" });
+      toast.success(`${collectionLabel()}，${drafts.length} 道。可继续拍`);
+      resetForMore();
     } catch {
       /* store already toasted */
     } finally {
@@ -292,8 +329,11 @@ function CapturePage() {
         <p className="text-sm font-medium tracking-wide text-primary">收录</p>
         <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">拍下错题</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          可一次选多张，或拍整页试卷。多道题会自动拆开；有图的题请自己框选原图。
+          先选组，再连续拍。存完还在这一页，可以继续加题。
         </p>
+        <div className="mt-4">
+          <CollectionPicker value={collectionId} onChange={pickCollection} />
+        </div>
       </div>
 
       {stage === "loading" ? (
@@ -382,6 +422,11 @@ function CapturePage() {
             {busy ? <LoaderCircle className="animate-spin" /> : null}
             {images.length > 1 ? `识别 ${images.length} 张并拆题` : "识别题干"}
           </Button>
+          {collectionId ? (
+            <Button variant="ghost" onClick={() => void navigate({ to: "/", search: { g: collectionId } })}>
+              回这一组
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -586,7 +631,7 @@ function ReviewForm({
         {onSaveAll ? (
           <Button variant="secondary" onClick={onSaveAll} disabled={busy}>
             {busy ? <LoaderCircle className="animate-spin" /> : null}
-            全部收入本子
+            全部收入本组
           </Button>
         ) : null}
         <Button onClick={onSave} disabled={busy}>

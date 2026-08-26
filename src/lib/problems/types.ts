@@ -78,6 +78,7 @@ export interface Problem {
   mastery: Mastery;
   reviewCount: number;
   nextReviewAt: number;
+  collectionId?: string;
 }
 
 export function isSubject(value: string): value is Subject {

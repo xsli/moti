@@ -114,7 +114,7 @@ ${analysis}
 \\setstretch{1.28}
 \\pagestyle{fancy}
 \\fancyhf{}
-\\cfoot{\\small ${escapeTex(options.title)}试卷\\quad 第\\,\\thepage\\,页}
+\\cfoot{\\small ${escapeTex(options.title)}\\quad 第\\,\\thepage\\,页}
 \\renewcommand{\\headrulewidth}{0pt}
 \\setlength{\\parindent}{0em}
 \\setlist[enumerate]{leftmargin=1.7em,itemsep=0.55em,topsep=0.3em}
@@ -130,7 +130,7 @@ ${analysis}
 \\thispagestyle{fancy}
 \\begin{center}
   {\\heiti\\LARGE 墨题\\quad ${escapeTex(options.dateLabel)}}\\\\[0.55em]
-  {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "试卷（解析）" : "试卷"}}
+  {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "{\\normalsize\\color{blue}\\fbox{\\strut 解析}}" : ""}}
 \\end{center}
 \\vspace{0.6em}
 \\noindent 姓名\\hrulefill\\,\\hfill

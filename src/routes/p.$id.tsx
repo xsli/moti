@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Scissors, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { TagEditor } from "@/components/notebook/tag-editor";
@@ -19,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { cropDataUrl } from "@/lib/image/compress";
 import { formatLoggedDateLong } from "@/lib/problems/dates";
+import { usePaperStore } from "@/lib/paper/store";
 import { MathText } from "@/lib/problems/math-text";
 import { useProblemStore } from "@/lib/problems/store";
 import {
@@ -68,6 +70,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const navigate = useNavigate();
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
+  const addToBasket = usePaperStore((s) => s.addToBasket);
   const problems = useProblemStore((s) => s.problems);
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -108,17 +111,29 @@ function ProblemDetail({ problem }: { problem: Problem }) {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="ghost" size="sm">
           <Link to="/">
             <ArrowLeft className="size-4" />
             本子
           </Link>
         </Button>
+        <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const n = addToBasket([problem.id]);
+            toast.success(n ? "已放入组卷篮" : "已在组卷篮里");
+          }}
+        >
+          加入组卷篮
+        </Button>
         <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
           <Trash2 className="size-4" />
           删除
         </Button>
+        </div>
       </div>
 
       <article className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
@@ -131,6 +146,12 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         <div className="px-5 py-5 sm:px-6">
           <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{problem.title}</h1>
           <p className="mt-2 text-sm text-muted-foreground">录入 {formatLoggedDateLong(problem.createdAt)}</p>
+          <div className="mt-4">
+            <CollectionPicker
+              value={problem.collectionId ?? ""}
+              onChange={(id) => void updateProblem(problem.id, { collectionId: id || undefined })}
+            />
+          </div>
           <div className="mt-4">
             <MathText text={problem.stem} className="text-lg" />
           </div>
