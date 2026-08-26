@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PaperRow } from "./layout";
+import type { PaperRow, SheetKind } from "./layout";
 import type { BlankLines } from "./space";
 import {
   addToBasket as addIds,
@@ -53,6 +53,7 @@ interface PaperState extends PaperSession {
     withAnswers: boolean;
     blankLines?: BlankLines;
     blankAuto?: boolean;
+    sheetKind?: SheetKind;
     rows: PaperRow[];
     id?: string;
   }) => string;

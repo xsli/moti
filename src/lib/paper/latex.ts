@@ -1,4 +1,4 @@
-import { chineseOrdinal, type ExamItem } from "./layout";
+import { chineseOrdinal, type ExamItem, type SheetKind } from "./layout";
 import { blankHeightCm, DEFAULT_BLANK_LINES, type BlankLines } from "./space";
 
 function escapeTex(text: string): string {
@@ -68,8 +68,16 @@ function scoreTableTex(headingCount: number): string {
 
 export function buildExamLatex(
   items: ExamItem[],
-  options: { title: string; dateLabel: string; withAnswers: boolean; blankLines?: BlankLines; blankAuto?: boolean },
+  options: {
+    title: string;
+    dateLabel: string;
+    withAnswers: boolean;
+    blankLines?: BlankLines;
+    blankAuto?: boolean;
+    sheetKind?: SheetKind;
+  },
 ): string {
+  if (options.sheetKind === "handout") return buildHandoutLatex(items, options);
   const headingCount = items.filter((item) => item.kind === "heading").length;
   const body = items
     .map((item) => {
@@ -90,7 +98,7 @@ export function buildExamLatex(
         : "";
       const space = options.withAnswers
         ? ""
-        : `\\par\\vspace{${blankHeightCm(p, options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
+        : `\\par\\vspace{${blankHeightCm(p, item.blankLines ?? options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
       const analysis = options.withAnswers
         ? `
 {\\color{blue}{\\heiti 解析}\\quad ${toTex(p.correctAnswer || "（略）")}
@@ -145,3 +153,52 @@ ${body}
 \\end{document}
 `;
 }
+
+function buildHandoutLatex(
+  items: ExamItem[],
+  options: { title: string; dateLabel: string; withAnswers: boolean; blankLines?: BlankLines; blankAuto?: boolean },
+): string {
+  const body = items
+    .map((item) => {
+      if (item.kind === "heading") {
+        return `\\par\\addvspace{1.0em}
+\\noindent{\\heiti ${escapeTex(item.title)}}
+\\par\\addvspace{0.35em}`;
+      }
+      const p = item.problem;
+      if (item.role === "points") {
+        return `\\noindent\\textbullet\\ ${toTex(p.notes.trim() || p.title)}\\par`;
+      }
+      const mark = item.role === "example" ? `{\\heiti ${escapeTex(item.label)}}` : `{\\bfseries ${escapeTex(item.label)}}`;
+      const idea =
+        options.withAnswers
+          ? `
+{\\color{blue}\\noindent{\\heiti 思路}\\quad ${toTex(p.analysis || "（略）")}
+\\par {\\heiti 答案}\\quad ${toTex(p.correctAnswer || "（略）")}}`
+          : `\\par\\vspace{${blankHeightCm(p, item.blankLines ?? options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
+      return `\\par ${mark}\\hspace{0.4em}${toTex(p.stem)}
+${idea}`;
+    })
+    .join("\n\n");
+
+  return `% !TEX program = xelatex
+% 墨题学案
+\\documentclass[a4paper,11pt]{ctexart}
+\\usepackage[a4paper,left=2.0cm,right=1.8cm,top=1.6cm,bottom=1.8cm]{geometry}
+\\usepackage{amsmath,amssymb,setspace,fancyhdr,xcolor}
+\\setstretch{1.28}
+\\pagestyle{fancy}
+\\fancyhf{}
+\\lfoot{\\small 墨题学案}
+\\rfoot{\\small 第\\,\\thepage\\,页}
+\\renewcommand{\\headrulewidth}{0pt}
+\\setlength{\\parindent}{0em}
+\\begin{document}
+\\noindent{\\heiti 墨题}\\quad{\\fbox{\\strut 学案}}\\hfill {\\small 我算故我在。——笛卡尔大概是这个意思}
+\\par\\vspace{0.3em}\\hrule\\vspace{0.6em}
+
+${body}
+\\end{document}
+`;
+}
+

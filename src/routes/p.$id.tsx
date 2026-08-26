@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, LoaderCircle, Sparkles, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Pencil, Sparkles, Scissors, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { solveProblem } from "@/lib/ai/extract";
 import type { ImageBBox } from "@/lib/image/bbox";
@@ -151,20 +152,20 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Link>
         </Button>
         <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const n = addToBasket([problem.id]);
-            toast.success(n ? "已放入组卷篮" : "已在组卷篮里");
-          }}
-        >
-          加入组卷篮
-        </Button>
-        <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-          <Trash2 className="size-4" />
-          删除
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const n = addToBasket([problem.id]);
+              toast.success(n ? "已放入组卷篮" : "已在组卷篮里");
+            }}
+          >
+            加入组卷篮
+          </Button>
+          <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+            <Trash2 className="size-4" />
+            删除
+          </Button>
         </div>
       </div>
 
@@ -176,7 +177,10 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Badge>
         </div>
         <div className="px-5 py-5 sm:px-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{problem.title}</h1>
+          <EditableTitle
+            value={problem.title}
+            onSave={(title) => void updateProblem(problem.id, { title })}
+          />
           <p className="mt-2 text-sm text-muted-foreground">录入 {formatLoggedDateLong(problem.createdAt)}</p>
           <div className="mt-4">
             <CollectionPicker
@@ -185,7 +189,13 @@ function ProblemDetail({ problem }: { problem: Problem }) {
             />
           </div>
           <div className="mt-4">
-            <MathText text={problem.stem} className="text-lg" />
+            <EditableMath
+              value={problem.stem}
+              placeholder="题干"
+              previewClass="text-lg"
+              tall
+              onSave={(stem) => void updateProblem(problem.id, { stem })}
+            />
           </div>
           <div className="mt-5">
             <p className="mb-2 text-xs tracking-wider text-muted-foreground">标签</p>
@@ -225,7 +235,11 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         {solving && !hasAnswer ? (
           <p className="text-sm text-muted-foreground">Grok 正在做这道题…</p>
         ) : (
-          <MathText text={problem.correctAnswer || "（未填写）"} />
+          <EditableMath
+            value={problem.correctAnswer}
+            placeholder="正确答案"
+            onSave={(correctAnswer) => void updateProblem(problem.id, { correctAnswer })}
+          />
         )}
       </Panel>
 
@@ -233,7 +247,12 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         {solving && !problem.analysis.trim() ? (
           <p className="text-sm text-muted-foreground">解析生成后会出现在这里。</p>
         ) : (
-          <MathText text={problem.analysis || "（未填写）"} />
+          <EditableMath
+            value={problem.analysis}
+            placeholder="解析"
+            tall
+            onSave={(analysis) => void updateProblem(problem.id, { analysis })}
+          />
         )}
       </Panel>
 
@@ -340,5 +359,149 @@ function Panel({
       </div>
       <div className="mt-3">{children}</div>
     </section>
+  );
+}
+
+function EditToggle({
+  editing,
+  onEdit,
+  onSave,
+  onCancel,
+}: {
+  editing: boolean;
+  onEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-fg"
+        onClick={onEdit}
+      >
+        <Pencil className="size-3" />
+        修改
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2">
+      <button type="button" className="text-xs text-muted-foreground hover:text-fg" onClick={onCancel}>
+        取消
+      </button>
+      <button type="button" className="text-xs font-medium text-primary hover:text-fg" onClick={onSave}>
+        保存
+      </button>
+    </span>
+  );
+}
+
+function EditableTitle({ value, onSave }: { value: string; onSave: (next: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  function save() {
+    const next = draft.trim().slice(0, 80) || "未命名题目";
+    setEditing(false);
+    if (next !== value) onSave(next);
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3">
+      {editing ? (
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") {
+              setDraft(value);
+              setEditing(false);
+            }
+          }}
+          className="font-display text-xl font-semibold"
+          autoFocus
+        />
+      ) : (
+        <h1 className="min-w-0 flex-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{value}</h1>
+      )}
+      <EditToggle
+        editing={editing}
+        onEdit={() => setEditing(true)}
+        onSave={save}
+        onCancel={() => {
+          setDraft(value);
+          setEditing(false);
+        }}
+      />
+    </div>
+  );
+}
+
+function EditableMath({
+  value,
+  onSave,
+  placeholder,
+  tall,
+  previewClass,
+}: {
+  value: string;
+  onSave: (next: string) => void;
+  placeholder: string;
+  tall?: boolean;
+  previewClass?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  function save() {
+    setEditing(false);
+    if (draft !== value) onSave(draft);
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-end">
+        <EditToggle
+          editing={editing}
+          onEdit={() => setEditing(true)}
+          onSave={save}
+          onCancel={() => {
+            setDraft(value);
+            setEditing(false);
+          }}
+        />
+      </div>
+      {editing ? (
+        <>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={`用中文和 $LaTeX$ 写${placeholder}`}
+            className={tall ? "min-h-40" : "min-h-24"}
+            autoFocus
+          />
+          <div className="rounded-md bg-secondary/60 px-3 py-3">
+            <p className="mb-2 text-[11px] tracking-wider text-muted-foreground">预览</p>
+            {draft.trim() ? (
+              <MathText text={draft} className={previewClass} />
+            ) : (
+              <p className="text-sm text-muted-foreground">（空）</p>
+            )}
+          </div>
+        </>
+      ) : value.trim() ? (
+        <MathText text={value} className={previewClass} />
+      ) : (
+        <p className="text-sm text-muted-foreground">（未填写）</p>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { toast } from "sonner";
 import { create } from "zustand";
-import { exportProblemsJson, parseImportedProblems, readCachedNotebook, writeCachedProblems } from "./cache";
+import { exportNotebookJson, parseImportedNotebook, readCachedNotebook, writeCachedProblems } from "./cache";
 import {
   mergeCollections,
   type Collection,
@@ -31,8 +31,8 @@ interface ProblemState {
   addCollection: (input: { name: string; kind?: CollectionKind }) => Promise<string>;
   updateCollection: (id: string, patch: Partial<Pick<Collection, "name" | "kind">>) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
-  importProblems: (text: string) => Promise<number>;
-  exportText: () => string;
+  importNotebook: (text: string) => Promise<{ problems: number; collections: number }>;
+  exportNotebook: () => Promise<string>;
 }
 
 function isUnauthorized(error: unknown): boolean {
@@ -320,19 +320,85 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       throw error;
     }
   },
-  importProblems: async (text) => {
-    const incoming = parseImportedProblems(text);
-    if (!incoming.length) throw new Error("文件里没有题目");
-    const merged = mergeProblems(get().problems, incoming);
-    set({ problems: merged });
-    persist(get().userId, merged, get().collections);
-    const { pushProblems } = await import("./api");
-    const pushed = await pushProblems({ data: { problems: incoming } });
-    persist(get().userId, pushed.problems, get().collections);
-    set({ problems: pushed.problems, status: "ready", syncedAt: Date.now(), error: null });
-    return incoming.length;
+  importNotebook: async (text) => {
+    const incoming = parseImportedNotebook(text);
+    if (!incoming.problems.length && !incoming.collections.length) {
+      throw new Error("文件里没有题目或分组");
+    }
+    const collections = mergeCollections(incoming.collections, get().collections);
+    const problems = mergeProblems(incoming.problems, get().problems);
+    set({ problems, collections });
+    persist(get().userId, problems, collections);
+    try {
+      const { pushProblems, pushCollectionsFn } = await import("./api");
+      if (incoming.collections.length) {
+        const pushedCols = await pushCollectionsFn({ data: { collections } });
+        const nextCols = mergeCollections(pushedCols.collections, collections);
+        set({ collections: nextCols });
+        persist(get().userId, get().problems, nextCols);
+      }
+      const chunk = 40;
+      for (let i = 0; i < incoming.problems.length; i += chunk) {
+        await pushProblems({ data: { problems: incoming.problems.slice(i, i + chunk) } });
+      }
+      persist(get().userId, get().problems, get().collections);
+      set({ status: "ready", syncedAt: Date.now(), error: null });
+    } catch (error) {
+      if (isUnauthorized(error)) throw error;
+      toast.error("云端暂时没写上。备份已留在这台设备。");
+    }
+    if (incoming.paper) {
+      try {
+        const { parseSession } = await import("@/lib/paper/session");
+        const { usePaperStore } = await import("@/lib/paper/store");
+        const paper = parseSession(incoming.paper);
+        const store = usePaperStore.getState();
+        store.hydrate(store.userId);
+        const current = usePaperStore.getState();
+        const templates = [...paper.templates, ...current.templates.filter((t) => !paper.templates.some((p) => p.id === t.id))].slice(0, 20);
+        const basket = [...new Set([...paper.basket, ...current.basket])].slice(0, 80);
+        usePaperStore.setState({ basket, templates });
+        window.localStorage.setItem(
+          `moti-paper-v1:${store.userId || "guest"}`,
+          JSON.stringify({ basket, templates }),
+        );
+      } catch {
+        /* paper optional */
+      }
+    }
+    return { problems: incoming.problems.length, collections: incoming.collections.length };
   },
-  exportText: () => exportProblemsJson(get().problems),
+  exportNotebook: async () => {
+    const { getProblemFn } = await import("./api");
+    const local = get().problems;
+    const full = await Promise.all(
+      local.map(async (item) => {
+        const hasMedia = Boolean(item.sourceImage || item.figures.some((fig) => fig.image || fig.svg));
+        if (hasMedia) return item;
+        try {
+          const remote = await getProblemFn({ data: { id: item.id } });
+          if (!remote) return item;
+          return {
+            ...remote,
+            sourceImage: remote.sourceImage || item.sourceImage,
+            collectionId: remote.collectionId ?? item.collectionId,
+            figures: remote.figures.some((f) => f.image || f.svg) ? remote.figures : item.figures,
+          };
+        } catch {
+          return item;
+        }
+      }),
+    );
+    let paper: { basket: string[]; templates: unknown[] } | undefined;
+    try {
+      const { usePaperStore } = await import("@/lib/paper/store");
+      const session = usePaperStore.getState();
+      paper = { basket: session.basket, templates: session.templates };
+    } catch {
+      paper = undefined;
+    }
+    return exportNotebookJson(full, get().collections, paper);
+  },
 }));
 
 export function selectDueProblems(problems: Problem[]): Problem[] {

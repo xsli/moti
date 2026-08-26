@@ -1,12 +1,16 @@
 import type { Problem } from "@/lib/problems/types";
+import { DEFAULT_BLANK_LINES, type BlankLines } from "./space";
+
+export type SheetKind = "exam" | "handout";
+export type HeadingRole = "points" | "example" | "practice";
 
 export type PaperRow =
-  | { kind: "heading"; id: string; title: string; perScore: number }
+  | { kind: "heading"; id: string; title: string; perScore: number; blankLines?: BlankLines }
   | { kind: "problem"; id: string; problemId: string };
 
 export type ExamItem =
-  | { kind: "heading"; title: string }
-  | { kind: "problem"; problem: Problem; number: number };
+  | { kind: "heading"; title: string; role: HeadingRole }
+  | { kind: "problem"; problem: Problem; number: number; blankLines: BlankLines; role: HeadingRole; label: string };
 
 const CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
@@ -19,6 +23,13 @@ export function chineseOrdinal(n: number): string {
     return `${CN[tens]}十${ones ? CN[ones] : ""}`;
   }
   return String(n);
+}
+
+export function headingRole(title: string): HeadingRole {
+  const t = title.trim();
+  if (/要点|知识|笔记|小结|回顾/.test(t)) return "points";
+  if (/例题|^例\b|示范/.test(t)) return "example";
+  return "practice";
 }
 
 export function sectionCount(rows: PaperRow[], headingIndex: number): number {
@@ -51,26 +62,64 @@ export function rowsFromIds(ids: string[]): PaperRow[] {
   return ids.map((problemId) => ({ kind: "problem" as const, id: problemId, problemId }));
 }
 
-export function resolveExamItems(rows: PaperRow[], problems: Problem[]): ExamItem[] {
+export function headingBlankPreset(title: string): BlankLines {
+  const role = headingRole(title);
+  if (role === "points") return 2;
+  if (role === "example" || title.includes("练习")) return 6;
+  if (title.includes("选择") || title.includes("填空") || title.includes("判断")) return 2;
+  if (title.includes("解答") || title.includes("证明") || title.includes("计算")) return 6;
+  return DEFAULT_BLANK_LINES;
+}
+
+export function resolveExamItems(
+  rows: PaperRow[],
+  problems: Problem[],
+  fallback: BlankLines = DEFAULT_BLANK_LINES,
+  sheetKind: SheetKind = "exam",
+): ExamItem[] {
   const byId = new Map(problems.map((p) => [p.id, p]));
   const items: ExamItem[] = [];
   let number = 0;
   let heading = 0;
+  let exampleNo = 0;
+  let practiceNo = 0;
+  let sectionBlank = fallback;
+  let role: HeadingRole = "practice";
   rows.forEach((row, index) => {
     if (row.kind === "heading") {
       const title = row.title.trim();
       if (!title) return;
       heading += 1;
-      items.push({
-        kind: "heading",
-        title: headingLabel(heading, title, sectionCount(rows, index), row.perScore || 0),
-      });
+      role = headingRole(title);
+      sectionBlank = row.blankLines ?? headingBlankPreset(title);
+      const label =
+        sheetKind === "handout"
+          ? `${chineseOrdinal(heading)}、${title}`
+          : headingLabel(heading, title, sectionCount(rows, index), row.perScore || 0);
+      items.push({ kind: "heading", title: label, role });
       return;
     }
     const problem = byId.get(row.problemId);
     if (!problem) return;
     number += 1;
-    items.push({ kind: "problem", problem, number });
+    if (role === "example") exampleNo += 1;
+    else if (role !== "points") practiceNo += 1;
+    const label =
+      sheetKind === "handout"
+        ? role === "example"
+          ? `例${exampleNo}.`
+          : role === "points"
+            ? "·"
+            : `${practiceNo}.`
+        : `${number}.`;
+    items.push({
+      kind: "problem",
+      problem,
+      number,
+      blankLines: sectionBlank,
+      role,
+      label,
+    });
   });
   return items;
 }

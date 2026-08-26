@@ -1,5 +1,5 @@
-import type { PaperRow } from "./layout";
 import { coerceBlankAuto, coerceBlankLines, DEFAULT_BLANK_LINES, type BlankLines } from "./space.ts";
+import type { PaperRow, SheetKind } from "./layout";
 
 export type PaperTemplate = {
   id: string;
@@ -8,6 +8,7 @@ export type PaperTemplate = {
   withAnswers: boolean;
   blankLines: BlankLines;
   blankAuto: boolean;
+  sheetKind: SheetKind;
   rows: PaperRow[];
   createdAt: number;
   updatedAt: number;
@@ -29,7 +30,16 @@ function asHeading(row: Record<string, unknown>, id: string): PaperRow | null {
   const title = String(row.title ?? "").slice(0, 40);
   const perScore = Math.max(0, Math.round(Number(row.perScore) || 0));
   if (!title) return null;
-  return { kind: "heading", id, title, perScore };
+  const heading: Extract<PaperRow, { kind: "heading" }> = {
+    kind: "heading",
+    id,
+    title,
+    perScore,
+  };
+  if (row.blankLines != null && row.blankLines !== "") {
+    heading.blankLines = coerceBlankLines(row.blankLines);
+  }
+  return heading;
 }
 
 function asProblem(row: Record<string, unknown>, id: string): PaperRow | null {
@@ -69,6 +79,7 @@ export function parseSession(raw: unknown): PaperSession {
         withAnswers: Boolean(row.withAnswers),
         blankLines: coerceBlankLines(row.blankLines),
         blankAuto: coerceBlankAuto(row.blankAuto, row.blankLines),
+        sheetKind: row.sheetKind === "handout" ? "handout" : "exam",
         rows: coerceRows(row.rows),
         createdAt: Number(row.createdAt) || Date.now(),
         updatedAt: Number(row.updatedAt) || Date.now(),
@@ -109,7 +120,13 @@ function problemRow(problemId: string): PaperRow {
 }
 
 function copyHeading(row: Extract<PaperRow, { kind: "heading" }>): PaperRow {
-  return { kind: "heading", id: crypto.randomUUID(), title: row.title, perScore: row.perScore };
+  return {
+    kind: "heading",
+    id: crypto.randomUUID(),
+    title: row.title,
+    perScore: row.perScore,
+    blankLines: row.blankLines,
+  };
 }
 
 /** Apply a template's headings/scores onto a new set of problems, keeping section sizes. */
@@ -164,6 +181,7 @@ export function saveTemplate(
     withAnswers: boolean;
     blankLines?: BlankLines;
     blankAuto?: boolean;
+    sheetKind?: SheetKind;
     rows: PaperRow[];
     id?: string;
   },
@@ -177,6 +195,7 @@ export function saveTemplate(
     withAnswers: input.withAnswers,
     blankLines: coerceBlankLines(input.blankLines ?? DEFAULT_BLANK_LINES),
     blankAuto: Boolean(input.blankAuto),
+    sheetKind: input.sheetKind === "handout" ? "handout" : "exam",
     rows: coerceRows(input.rows),
     createdAt: now,
     updatedAt: now,

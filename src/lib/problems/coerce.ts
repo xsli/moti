@@ -83,14 +83,14 @@ export function coerceProblem(raw: unknown): Problem | null {
   };
 }
 
-export function coerceProblemList(raw: unknown): Problem[] {
+export function coerceProblemList(raw: unknown, max = 400): Problem[] {
   if (!Array.isArray(raw)) return [];
   const out: Problem[] = [];
   for (const item of raw) {
     const problem = coerceProblem(item);
     if (problem) out.push(problem);
   }
-  return out.slice(0, 80);
+  return out.slice(0, max);
 }
 
 export function mergeProblems(primary: Problem[], secondary: Problem[]): Problem[] {

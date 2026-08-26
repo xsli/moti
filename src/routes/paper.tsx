@@ -3,13 +3,13 @@ import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ProblemCard } from "@/components/notebook/problem-card";
-import { ArrangeList } from "@/components/paper/arrange-list";
+import { ArrangeList, SheetKindToggle } from "@/components/paper/arrange-list";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { ExamSheet } from "@/components/paper/exam-sheet";
 import { TemplateList } from "@/components/paper/template-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { resolveExamItems, rowsFromIds, type PaperRow } from "@/lib/paper/layout";
+import { resolveExamItems, rowsFromIds, type PaperRow, type SheetKind } from "@/lib/paper/layout";
 import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
 import { applyTemplateRows } from "@/lib/paper/session";
@@ -56,6 +56,7 @@ function PaperPage() {
   const [withAnswers, setWithAnswers] = useState(false);
   const [blankLines, setBlankLines] = useState<BlankLines>(DEFAULT_BLANK_LINES);
   const [blankAuto, setBlankAuto] = useState(false);
+  const [sheetKind, setSheetKind] = useState<SheetKind>("exam");
   const [step, setStep] = useState<"arrange" | "preview">("arrange");
 
   useEffect(() => {
@@ -72,6 +73,7 @@ function PaperPage() {
       setWithAnswers(template.withAnswers);
       setBlankLines(coerceBlankLines(template.blankLines));
       setBlankAuto(coerceBlankAuto(template.blankAuto, template.blankLines));
+      setSheetKind(template.sheetKind === "handout" ? "handout" : "exam");
       setStep("arrange");
       return;
     }
@@ -80,6 +82,7 @@ function PaperPage() {
     setWithAnswers(false);
     setBlankLines(DEFAULT_BLANK_LINES);
     setBlankAuto(false);
+    setSheetKind("exam");
     setStep("arrange");
   }, [idsKey, tpl, tplStamp, selectedIds]);
 
@@ -105,12 +108,25 @@ function PaperPage() {
       <ArrangeList
         rows={rows}
         problems={selected}
+        sheetKind={sheetKind}
+        onSheetKind={(kind) => {
+          setSheetKind(kind);
+          if (kind === "handout" && title === "错题练习卷") setTitle("错题学案");
+          if (kind === "exam" && title === "错题学案") setTitle("错题练习卷");
+          if (kind === "handout" && !rows.some((row) => row.kind === "heading")) {
+            setRows([
+              { kind: "heading", id: crypto.randomUUID(), title: "练习", perScore: 0, blankLines: 6 },
+              ...rows,
+            ]);
+          }
+        }}
         onChange={setRows}
-        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers, blankLines: nextBlank, blankAuto: nextAuto }) => {
+        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers, blankLines: nextBlank, blankAuto: nextAuto, sheetKind: nextKind }) => {
           setTitle(nextTitle);
           setWithAnswers(nextAnswers);
           setBlankLines(nextBlank);
           setBlankAuto(nextAuto);
+          setSheetKind(nextKind);
         }}
         onNext={() => setStep("preview")}
         onBack={() => navigate({ to: "/paper", search: { ids: "", tpl: "" } })}
@@ -120,16 +136,28 @@ function PaperPage() {
 
   return (
     <PaperPreview
-      items={resolveExamItems(rows, selected)}
+      items={resolveExamItems(rows, selected, blankLines, sheetKind)}
       rows={rows}
       title={title}
       withAnswers={withAnswers}
       blankLines={blankLines}
       blankAuto={blankAuto}
+      sheetKind={sheetKind}
       onTitle={setTitle}
       onAnswers={setWithAnswers}
       onBlankLines={setBlankLines}
       onBlankAuto={setBlankAuto}
+      onSheetKind={(kind) => {
+        setSheetKind(kind);
+        if (kind === "handout" && title === "错题练习卷") setTitle("错题学案");
+        if (kind === "exam" && title === "错题学案") setTitle("错题练习卷");
+        if (kind === "handout" && !rows.some((row) => row.kind === "heading")) {
+          setRows([
+            { kind: "heading", id: crypto.randomUUID(), title: "练习", perScore: 0, blankLines: 6 },
+            ...rows,
+          ]);
+        }
+      }}
       onBack={() => setStep("arrange")}
     />
   );
@@ -197,10 +225,10 @@ function PaperPicker() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="font-display text-3xl font-semibold">组卷</h1>
-        <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。筛选不影响已选。</p>
-      </div>
+        <div>
+          <h1 className="font-display text-3xl font-semibold">组卷</h1>
+          <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。筛选不影响已选。</p>
+        </div>
 
       <BasketBar />
       <TemplateList />
@@ -382,10 +410,12 @@ function PaperPreview({
   withAnswers,
   blankLines,
   blankAuto,
+  sheetKind,
   onTitle,
   onAnswers,
   onBlankLines,
   onBlankAuto,
+  onSheetKind,
   onBack,
 }: {
   items: ReturnType<typeof resolveExamItems>;
@@ -394,10 +424,12 @@ function PaperPreview({
   withAnswers: boolean;
   blankLines: BlankLines;
   blankAuto: boolean;
+  sheetKind: SheetKind;
   onTitle: (value: string) => void;
   onAnswers: (value: boolean) => void;
   onBlankLines: (value: BlankLines) => void;
   onBlankAuto: (value: boolean) => void;
+  onSheetKind: (kind: SheetKind) => void;
   onBack: () => void;
 }) {
   const saveTemplate = usePaperStore((s) => s.saveTemplate);
@@ -408,7 +440,7 @@ function PaperPreview({
   const dateLabel = formatLoggedDateLong(Date.now());
 
   function downloadTex() {
-    const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto });
+    const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto, sheetKind });
     const blob = new Blob([tex], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -486,7 +518,7 @@ function PaperPreview({
       <div className="no-print flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-semibold">预览试卷</h1>
+            <h1 className="font-display text-2xl font-semibold">{sheetKind === "handout" ? "预览学案" : "预览试卷"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               A4 · {items.filter((item) => item.kind === "problem").length} 道 · 先生成 PDF，再下载
             </p>
@@ -510,9 +542,10 @@ function PaperPreview({
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-            卷名
+            {sheetKind === "handout" ? "学案名" : "卷名"}
             <Input value={title} onChange={(e) => onTitle(e.target.value)} />
           </label>
+          <SheetKindToggle value={sheetKind} onChange={onSheetKind} />
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -522,7 +555,7 @@ function PaperPreview({
             解析版
           </label>
           <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
-            答题留白
+            默认留白
             <select
               className="h-9 rounded-md border border-border bg-background px-2 text-sm"
               value={blankLines}
@@ -556,7 +589,7 @@ function PaperPreview({
             variant="outline"
             className="sm:mt-5"
             onClick={() => {
-              saveTemplate({ name: tplName, title, withAnswers, blankLines, blankAuto, rows });
+              saveTemplate({ name: tplName, title, withAnswers, blankLines, blankAuto, sheetKind, rows });
               toast.success("模板已保存，组卷页可以打开");
             }}
           >
@@ -573,6 +606,7 @@ function PaperPreview({
           withAnswers={withAnswers}
           blankLines={blankLines}
           blankAuto={blankAuto}
+          sheetKind={sheetKind}
         />
       </div>
     </div>

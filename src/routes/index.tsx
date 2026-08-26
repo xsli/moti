@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, FolderOpen, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, Download, FolderOpen, LayoutGrid, List, Search, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Logo } from "@/components/brand/logo";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
@@ -21,11 +21,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   COLLECTION_KIND_LABEL,
   defaultCollectionName,
+  type CollectionKind,
 } from "@/lib/problems/collections";
-import { matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
+import { formatLoggedDate, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
-import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
+import { SUBJECT_LABEL, SUBJECTS, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -37,6 +38,15 @@ export const Route = createFileRoute("/")({
 });
 
 type Filter = "all" | "due" | Subject;
+type BrowseLayout = "card" | "row";
+
+const KIND_ORDER: CollectionKind[] = ["exam", "unit", "lesson", "custom"];
+const LAYOUT_KEY = "moti-browse-layout";
+
+function readLayout(): BrowseLayout {
+  if (typeof window === "undefined") return "card";
+  return window.localStorage.getItem(LAYOUT_KEY) === "row" ? "row" : "card";
+}
 
 function Home() {
   const { g = "" } = Route.useSearch();
@@ -51,6 +61,8 @@ function Home() {
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
   const addToBasket = usePaperStore((s) => s.addToBasket);
+  const importNotebook = useProblemStore((s) => s.importNotebook);
+  const exportNotebook = useProblemStore((s) => s.exportNotebook);
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -65,6 +77,13 @@ function Home() {
   const [commonTags, setCommonTags] = useState<string[]>([]);
   const [batchGroupId, setBatchGroupId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [packing, setPacking] = useState(false);
+  const [layout, setLayout] = useState<BrowseLayout>("card");
+  const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLayout(readLayout());
+  }, []);
 
   const dueCount = useMemo(() => selectDueProblems(problems).length, [problems]);
   const masteredCount = useMemo(
@@ -174,14 +193,73 @@ function Home() {
     }
   }
 
+  async function downloadBackup() {
+    setPacking(true);
+    try {
+      const text = await exportNotebook();
+      const blob = new Blob([text], { type: "application/json" });
+      const stamp = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `墨题备份-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast.success("已导出整本");
+    } catch {
+      toast.error("导出失败，请再试一次。");
+    } finally {
+      setPacking(false);
+    }
+  }
+
+  async function onImportFile(file: File | undefined) {
+    if (!file) return;
+    setPacking(true);
+    try {
+      const text = await file.text();
+      const result = await importNotebook(text);
+      toast.success(`已导入 ${result.problems} 道、${result.collections} 个分组`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "导入失败，请检查文件。");
+    } finally {
+      setPacking(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <Logo />
-        <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
-          <Stat label="收录" value={problems.length} />
-          <Stat label="待复习" value={dueCount} />
-          <Stat label="已掌握" value={masteredCount} />
+        <div className="flex flex-col items-start gap-3 sm:items-end">
+          <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
+            <Stat label="收录" value={problems.length} />
+            <Stat label="待复习" value={dueCount} />
+            <Stat label="已掌握" value={masteredCount} />
+          </div>
+          <div className="flex gap-2">
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                void onImportFile(file);
+              }}
+            />
+            <Button size="sm" variant="outline" onClick={() => importRef.current?.click()} disabled={packing}>
+              <Upload className="size-4" />
+              导入
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void downloadBackup()} disabled={packing}>
+              <Download className="size-4" />
+              {packing ? "正在打包…" : "导出整本"}
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -211,6 +289,7 @@ function Home() {
           <h2 className="font-display text-xl font-semibold">
             {g === "all" ? "全部题目" : g === "ungrouped" ? "未分组" : collections.find((item) => item.id === g)?.name || "分组"}
           </h2>
+          <span className="text-sm text-muted-foreground">{visible.length} 道</span>
           {g && g !== "all" && g !== "ungrouped" ? (
             <Button
               size="sm"
@@ -244,6 +323,30 @@ function Home() {
           >
             {selecting ? "取消" : "选择"}
           </Button>
+          <div className="flex rounded-lg bg-secondary p-0.5">
+            <button
+              type="button"
+              aria-label="卡片"
+              className={cn("grid size-9 place-items-center rounded-md", layout === "card" && "bg-surface text-fg")}
+              onClick={() => {
+                setLayout("card");
+                window.localStorage.setItem(LAYOUT_KEY, "card");
+              }}
+            >
+              <LayoutGrid className="size-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="列表"
+              className={cn("grid size-9 place-items-center rounded-md", layout === "row" && "bg-surface text-fg")}
+              onClick={() => {
+                setLayout("row");
+                window.localStorage.setItem(LAYOUT_KEY, "row");
+              }}
+            >
+              <List className="size-4" />
+            </button>
+          </div>
         </div>
         {selecting ? (
           <div className="flex flex-wrap items-center gap-2 rounded-xl bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
@@ -413,17 +516,15 @@ function Home() {
           </Button>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((problem) => (
-            <ProblemCard
-              key={problem.id}
-              problem={problem}
-              selecting={selecting}
-              selected={selected.has(problem.id)}
-              onToggle={() => toggle(problem.id)}
-            />
-          ))}
-        </div>
+        <ProblemSections
+          problems={visible}
+          collections={collections}
+          byCollection={g === "all"}
+          layout={layout}
+          selecting={selecting}
+          selected={selected}
+          onToggle={toggle}
+        />
       )}
 
       <Dialog open={tagOpen} onOpenChange={setTagOpen}>
@@ -486,6 +587,87 @@ function Home() {
   );
 }
 
+function ProblemSections({
+  problems,
+  collections,
+  byCollection,
+  layout,
+  selecting,
+  selected,
+  onToggle,
+}: {
+  problems: Problem[];
+  collections: { id: string; name: string }[];
+  byCollection: boolean;
+  layout: BrowseLayout;
+  selecting: boolean;
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const sections = useMemo(() => {
+    if (!byCollection) {
+      return SUBJECTS.map((subject) => ({
+        key: subject,
+        title: SUBJECT_LABEL[subject],
+        items: problems.filter((p) => p.subject === subject),
+      })).filter((section) => section.items.length);
+    }
+    const named = collections
+      .map((item) => ({
+        key: item.id,
+        title: item.name,
+        items: problems.filter((p) => p.collectionId === item.id),
+      }))
+      .filter((section) => section.items.length);
+    const loose = problems.filter((p) => !p.collectionId);
+    return loose.length ? [...named, { key: "ungrouped", title: "未分组", items: loose }] : named;
+  }, [byCollection, collections, problems]);
+
+  const grid = layout === "card" ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-3" : "flex flex-col gap-2";
+
+  if (sections.length <= 1) {
+    return (
+      <div className={grid}>
+        {problems.map((problem) => (
+          <ProblemCard
+            key={problem.id}
+            problem={problem}
+            layout={layout}
+            selecting={selecting}
+            selected={selected.has(problem.id)}
+            onToggle={() => onToggle(problem.id)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {sections.map((section) => (
+        <section key={section.key} className="flex flex-col gap-3">
+          <div className="flex items-baseline gap-2">
+            <h3 className="font-display text-base font-semibold">{section.title}</h3>
+            <span className="text-xs text-muted-foreground">{section.items.length}</span>
+          </div>
+          <div className={grid}>
+            {section.items.map((problem) => (
+              <ProblemCard
+                key={problem.id}
+                problem={problem}
+                layout={layout}
+                selecting={selecting}
+                selected={selected.has(problem.id)}
+                onToggle={() => onToggle(problem.id)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function GroupHome({
   problems,
   collections,
@@ -493,12 +675,13 @@ function GroupHome({
   onCreate,
   onDelete,
 }: {
-  problems: { id: string; collectionId?: string; mastery: string; nextReviewAt: number }[];
-  collections: { id: string; name: string; kind: "exam" | "unit" | "lesson" | "custom" }[];
+  problems: Problem[];
+  collections: { id: string; name: string; kind: CollectionKind }[];
   dueCount: number;
   onCreate: () => void;
   onDelete: (id: string) => void;
 }) {
+  const [query, setQuery] = useState("");
   const now = Date.now();
   const ungrouped = problems.filter((p) => !p.collectionId);
   const dueOf = (ids: Set<string> | "none" | "all") =>
@@ -509,13 +692,42 @@ function GroupHome({
       return !!p.collectionId && ids.has(p.collectionId);
     }).length;
 
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? collections.filter((item) => item.name.toLowerCase().includes(q))
+    : collections;
+
+  const latest = (id?: string) => {
+    const list = id ? problems.filter((p) => p.collectionId === id) : problems.filter((p) => !p.collectionId);
+    return [...list].sort((a, b) => b.createdAt - a.createdAt)[0];
+  };
+
+  const clusters = KIND_ORDER.map((kind) => ({
+    kind,
+    items: filtered
+      .filter((item) => item.kind === kind)
+      .sort((a, b) => (latest(b.id)?.createdAt ?? 0) - (latest(a.id)?.createdAt ?? 0)),
+  })).filter((cluster) => cluster.items.length);
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">按试卷或单元查看，拍题时选组即可连续收录。</p>
-        <Button size="sm" variant="outline" onClick={onCreate}>
-          新建组
-        </Button>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">按试卷或单元查看。组里可以切列表，一屏能看更多题。</p>
+        <div className="flex gap-2">
+          <div className="relative min-w-40 flex-1 sm:w-56 sm:flex-none">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="找分组…"
+              className="pl-9"
+              aria-label="搜索分组"
+            />
+          </div>
+          <Button size="sm" variant="outline" onClick={onCreate}>
+            新建组
+          </Button>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Link
@@ -535,40 +747,62 @@ function GroupHome({
           >
             <p className="text-xs text-muted-foreground">未分组</p>
             <p className="mt-1 font-display text-lg font-semibold">{ungrouped.length} 道</p>
-            <p className="mt-1 text-xs text-muted-foreground">待复习 {dueOf("none")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              待复习 {dueOf("none")}
+              {latest() ? ` · 最近 ${formatLoggedDate(latest()!.createdAt)}` : ""}
+            </p>
+            {latest() ? <p className="mt-2 truncate text-sm text-fg/80">{latest()!.title}</p> : null}
           </Link>
         ) : null}
-        {collections.map((item) => {
-          const count = problems.filter((p) => p.collectionId === item.id).length;
-          return (
-            <div key={item.id} className="relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-              <Link to="/" search={{ g: item.id }} className="block pr-8">
-                <p className="text-xs text-muted-foreground">{COLLECTION_KIND_LABEL[item.kind]}</p>
-                <p className="mt-1 font-display text-lg font-semibold">{item.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {count} 道 · 待复习 {dueOf(new Set([item.id]))}
-                </p>
-              </Link>
-              <button
-                type="button"
-                className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
-                onClick={() => onDelete(item.id)}
-              >
-                删除
-              </button>
-            </div>
-          );
-        })}
-        {!collections.length && !ungrouped.length && !problems.length ? (
-          <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)] sm:col-span-2">
-            <FolderOpen className="mx-auto size-8 text-muted-foreground" />
-            <p className="mt-3 font-display text-lg font-semibold">还没有分组</p>
-            <Button asChild className="mt-4">
-              <Link to="/capture">去拍题</Link>
-            </Button>
-          </div>
-        ) : null}
       </div>
+      {clusters.map((cluster) => (
+        <section key={cluster.kind} className="flex flex-col gap-3">
+          <h3 className="text-xs font-medium tracking-wider text-muted-foreground">
+            {COLLECTION_KIND_LABEL[cluster.kind]}
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {cluster.items.map((item) => {
+              const count = problems.filter((p) => p.collectionId === item.id).length;
+              const recent = latest(item.id);
+              return (
+                <div key={item.id} className="relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+                  <Link to="/" search={{ g: item.id }} className="block pr-8">
+                    <p className="mt-0 font-display text-lg font-semibold">{item.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {count} 道 · 待复习 {dueOf(new Set([item.id]))}
+                      {recent ? ` · ${formatLoggedDate(recent.createdAt)}` : ""}
+                    </p>
+                    {recent ? <p className="mt-2 truncate text-sm text-fg/80">{recent.title}</p> : (
+                      <p className="mt-2 text-sm text-muted-foreground">还没有题目</p>
+                    )}
+                  </Link>
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() => onDelete(item.id)}
+                  >
+                    删除
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+      {q && !filtered.length ? (
+        <div className="rounded-xl bg-surface px-6 py-10 text-center shadow-[var(--shadow-border)]">
+          <p className="text-sm text-muted-foreground">没有叫这个名字的组</p>
+        </div>
+      ) : null}
+      {!collections.length && !ungrouped.length && !problems.length ? (
+        <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)]">
+          <FolderOpen className="mx-auto size-8 text-muted-foreground" />
+          <p className="mt-3 font-display text-lg font-semibold">还没有分组</p>
+          <Button asChild className="mt-4">
+            <Link to="/capture">去拍题</Link>
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

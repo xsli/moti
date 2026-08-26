@@ -47,21 +47,47 @@ export function writeCachedProblems(userId: string, problems: Problem[], collect
   }
 }
 
-export function exportProblemsJson(problems: Problem[]): string {
+export function exportNotebookJson(
+  problems: Problem[],
+  collections: Collection[],
+  paper?: { basket: string[]; templates: unknown[] },
+): string {
   return JSON.stringify(
     {
       app: "墨题",
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       problems,
+      collections,
+      paper: paper ?? undefined,
     },
     null,
     2,
   );
 }
 
+export function exportProblemsJson(problems: Problem[]): string {
+  return exportNotebookJson(problems, []);
+}
+
+export function parseImportedNotebook(text: string): {
+  problems: Problem[];
+  collections: Collection[];
+  paper?: { basket: unknown; templates: unknown };
+} {
+  const parsed = JSON.parse(text) as unknown;
+  if (Array.isArray(parsed)) {
+    return { problems: coerceProblemList(parsed, 400), collections: [] };
+  }
+  const obj = (parsed ?? {}) as Record<string, unknown>;
+  const paper = obj.paper && typeof obj.paper === "object" ? (obj.paper as { basket: unknown; templates: unknown }) : undefined;
+  return {
+    problems: coerceProblemList(obj.problems, 400),
+    collections: coerceCollectionList(obj.collections),
+    paper,
+  };
+}
+
 export function parseImportedProblems(text: string): Problem[] {
-  const parsed = JSON.parse(text) as { problems?: unknown } | unknown[];
-  const list = Array.isArray(parsed) ? parsed : (parsed as { problems?: unknown }).problems;
-  return coerceProblemList(list);
+  return parseImportedNotebook(text).problems;
 }
