@@ -33,6 +33,8 @@ type ProblemRow = {
   review_count: number | string;
   next_review_at: number | string;
   collection_id: string | null;
+  source_batch_id?: string | null;
+  source_order?: number | string | null;
 };
 
 function asNumber(value: number | string): number {
@@ -75,6 +77,21 @@ async function ensureCollectionsSchema(): Promise<void> {
         );
       } catch {
         /* index optional */
+      }
+      for (const stmt of [
+        "alter table problems add column if not exists source_batch_id text",
+        "alter table problems add column if not exists source_order bigint",
+        "alter table collections add column if not exists bucket text",
+      ]) {
+        try {
+          await sql.query(stmt);
+        } catch {
+          try {
+            await sql.query(stmt.replace(" if not exists", ""));
+          } catch {
+            /* column already exists */
+          }
+        }
       }
     })().catch((error) => {
       schemaReady = null;
@@ -161,45 +178,60 @@ function mapRow(row: ProblemRow): Problem {
     reviewCount: asNumber(row.review_count),
     nextReviewAt: asNumber(row.next_review_at),
     collectionId: row.collection_id || undefined,
+    sourceBatchId: row.source_batch_id || undefined,
+    sourceOrder: (() => {
+      const n = Math.round(asNumber(row.source_order ?? 0));
+      return n > 0 ? n : undefined;
+    })(),
   };
 }
 
 async function listForUser(userId: string): Promise<Problem[]> {
   await ensureCollectionsSchema();
   const sql = await getSql();
+  const slim = (row: ProblemRow) => {
+    const problem = mapRow({ ...row, source_image: row.source_image ?? null });
+    return {
+      ...problem,
+      figures: problem.figures.map((fig) => ({ ...fig, image: undefined, svg: "" })),
+    };
+  };
   try {
     const rows = await sql<ProblemRow>`
       select id, created_at, updated_at, source_kind, title, stem,
              figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
              analysis, notes, error_reason, mastery, review_count, next_review_at,
-             collection_id
+             collection_id, source_batch_id, source_order
       from problems
       where user_id = ${userId}
       order by updated_at desc
     `;
-    return rows.map((row) => {
-      const problem = mapRow({ ...row, source_image: null });
-      return {
-        ...problem,
-        figures: problem.figures.map((fig) => ({ ...fig, image: undefined, svg: "" })),
-      };
-    });
+    return rows.map((row) => slim({ ...row, source_image: null }));
   } catch {
-    const rows = await sql<Omit<ProblemRow, "collection_id">>`
-      select id, created_at, updated_at, source_kind, title, stem,
-             figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
-             analysis, notes, error_reason, mastery, review_count, next_review_at
-      from problems
-      where user_id = ${userId}
-      order by updated_at desc
-    `;
-    return rows.map((row) => {
-      const problem = mapRow({ ...row, source_image: null, collection_id: null });
-      return {
-        ...problem,
-        figures: problem.figures.map((fig) => ({ ...fig, image: undefined, svg: "" })),
-      };
-    });
+    try {
+      const rows = await sql<ProblemRow>`
+        select id, created_at, updated_at, source_kind, title, stem,
+               figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
+               analysis, notes, error_reason, mastery, review_count, next_review_at,
+               collection_id
+        from problems
+        where user_id = ${userId}
+        order by updated_at desc
+      `;
+      return rows.map((row) => slim({ ...row, source_image: null, source_batch_id: null, source_order: null }));
+    } catch {
+      const rows = await sql<Omit<ProblemRow, "collection_id">>`
+        select id, created_at, updated_at, source_kind, title, stem,
+               figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
+               analysis, notes, error_reason, mastery, review_count, next_review_at
+        from problems
+        where user_id = ${userId}
+        order by updated_at desc
+      `;
+      return rows.map((row) =>
+        slim({ ...row, source_image: null, collection_id: null, source_batch_id: null, source_order: null }),
+      );
+    }
   }
 }
 
@@ -240,6 +272,8 @@ function cleanProblem(input: Problem): Problem {
     analysis: input.analysis.slice(0, 8000),
     notes: input.notes.slice(0, 4000),
     collectionId: input.collectionId?.slice(0, 80) || undefined,
+    sourceBatchId: input.sourceBatchId?.slice(0, 80) || undefined,
+    sourceOrder: input.sourceOrder && input.sourceOrder > 0 ? Math.round(input.sourceOrder) : undefined,
   };
 }
 
@@ -247,67 +281,134 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
   await ensureCollectionsSchema();
   const p = cleanProblem(input);
   const sql = await getSql();
-  await sql`
-    insert into problems (
-      user_id, id, created_at, updated_at, source_kind, source_image,
-      title, stem, figures_json, subject, tags_json, difficulty,
-      my_answer, correct_answer, analysis, notes, error_reason,
-      mastery, review_count, next_review_at, collection_id
-    ) values (
-      ${userId}, ${p.id}, ${p.createdAt}, ${p.updatedAt}, ${p.sourceKind},
-      ${p.sourceImage ?? null}, ${p.title}, ${p.stem}, ${JSON.stringify(p.figures)},
-      ${p.subject}, ${JSON.stringify(p.tags)}, ${p.difficulty}, ${p.myAnswer},
-      ${p.correctAnswer}, ${p.analysis}, ${p.notes}, ${p.errorReason},
-      ${p.mastery}, ${p.reviewCount}, ${p.nextReviewAt}, ${p.collectionId ?? null}
-    )
-    on conflict (user_id, id) do update set
-      updated_at = excluded.updated_at,
-      source_kind = excluded.source_kind,
-      source_image = excluded.source_image,
-      title = excluded.title,
-      stem = excluded.stem,
-      figures_json = excluded.figures_json,
-      subject = excluded.subject,
-      tags_json = excluded.tags_json,
-      difficulty = excluded.difficulty,
-      my_answer = excluded.my_answer,
-      correct_answer = excluded.correct_answer,
-      analysis = excluded.analysis,
-      notes = excluded.notes,
-      error_reason = excluded.error_reason,
-      mastery = excluded.mastery,
-      review_count = excluded.review_count,
-      next_review_at = excluded.next_review_at,
-      collection_id = excluded.collection_id
-  `;
+  try {
+    await sql`
+      insert into problems (
+        user_id, id, created_at, updated_at, source_kind, source_image,
+        title, stem, figures_json, subject, tags_json, difficulty,
+        my_answer, correct_answer, analysis, notes, error_reason,
+        mastery, review_count, next_review_at, collection_id, source_batch_id, source_order
+      ) values (
+        ${userId}, ${p.id}, ${p.createdAt}, ${p.updatedAt}, ${p.sourceKind},
+        ${p.sourceImage ?? null}, ${p.title}, ${p.stem}, ${JSON.stringify(p.figures)},
+        ${p.subject}, ${JSON.stringify(p.tags)}, ${p.difficulty}, ${p.myAnswer},
+        ${p.correctAnswer}, ${p.analysis}, ${p.notes}, ${p.errorReason},
+        ${p.mastery}, ${p.reviewCount}, ${p.nextReviewAt}, ${p.collectionId ?? null},
+        ${p.sourceBatchId ?? null}, ${p.sourceOrder ?? null}
+      )
+      on conflict (user_id, id) do update set
+        updated_at = excluded.updated_at,
+        source_kind = excluded.source_kind,
+        source_image = excluded.source_image,
+        title = excluded.title,
+        stem = excluded.stem,
+        figures_json = excluded.figures_json,
+        subject = excluded.subject,
+        tags_json = excluded.tags_json,
+        difficulty = excluded.difficulty,
+        my_answer = excluded.my_answer,
+        correct_answer = excluded.correct_answer,
+        analysis = excluded.analysis,
+        notes = excluded.notes,
+        error_reason = excluded.error_reason,
+        mastery = excluded.mastery,
+        review_count = excluded.review_count,
+        next_review_at = excluded.next_review_at,
+        collection_id = excluded.collection_id,
+        source_batch_id = excluded.source_batch_id,
+        source_order = excluded.source_order
+    `;
+  } catch {
+    await sql`
+      insert into problems (
+        user_id, id, created_at, updated_at, source_kind, source_image,
+        title, stem, figures_json, subject, tags_json, difficulty,
+        my_answer, correct_answer, analysis, notes, error_reason,
+        mastery, review_count, next_review_at, collection_id
+      ) values (
+        ${userId}, ${p.id}, ${p.createdAt}, ${p.updatedAt}, ${p.sourceKind},
+        ${p.sourceImage ?? null}, ${p.title}, ${p.stem}, ${JSON.stringify(p.figures)},
+        ${p.subject}, ${JSON.stringify(p.tags)}, ${p.difficulty}, ${p.myAnswer},
+        ${p.correctAnswer}, ${p.analysis}, ${p.notes}, ${p.errorReason},
+        ${p.mastery}, ${p.reviewCount}, ${p.nextReviewAt}, ${p.collectionId ?? null}
+      )
+      on conflict (user_id, id) do update set
+        updated_at = excluded.updated_at,
+        source_kind = excluded.source_kind,
+        source_image = excluded.source_image,
+        title = excluded.title,
+        stem = excluded.stem,
+        figures_json = excluded.figures_json,
+        subject = excluded.subject,
+        tags_json = excluded.tags_json,
+        difficulty = excluded.difficulty,
+        my_answer = excluded.my_answer,
+        correct_answer = excluded.correct_answer,
+        analysis = excluded.analysis,
+        notes = excluded.notes,
+        error_reason = excluded.error_reason,
+        mastery = excluded.mastery,
+        review_count = excluded.review_count,
+        next_review_at = excluded.next_review_at,
+        collection_id = excluded.collection_id
+    `;
+  }
 }
 
 async function listCollections(userId: string): Promise<Collection[]> {
   await ensureCollectionsSchema();
   const sql = await getSql();
-  const rows = await sql<{
-    id: string;
-    name: string;
-    kind: string;
-    created_at: number | string;
-    updated_at: number | string;
-  }>`
-    select id, name, kind, created_at, updated_at
-    from collections
-    where user_id = ${userId}
-    order by updated_at desc
-  `;
-  return rows
-    .map((row) =>
-      coerceCollection({
-        id: row.id,
-        name: row.name,
-        kind: row.kind,
-        createdAt: asNumber(row.created_at),
-        updatedAt: asNumber(row.updated_at),
-      }),
-    )
-    .filter(Boolean) as Collection[];
+  try {
+    const rows = await sql<{
+      id: string;
+      name: string;
+      kind: string;
+      bucket: string | null;
+      created_at: number | string;
+      updated_at: number | string;
+    }>`
+      select id, name, kind, bucket, created_at, updated_at
+      from collections
+      where user_id = ${userId}
+      order by updated_at desc
+    `;
+    return rows
+      .map((row) =>
+        coerceCollection({
+          id: row.id,
+          name: row.name,
+          kind: row.kind,
+          bucket: row.bucket,
+          createdAt: asNumber(row.created_at),
+          updatedAt: asNumber(row.updated_at),
+        }),
+      )
+      .filter(Boolean) as Collection[];
+  } catch {
+    const rows = await sql<{
+      id: string;
+      name: string;
+      kind: string;
+      created_at: number | string;
+      updated_at: number | string;
+    }>`
+      select id, name, kind, created_at, updated_at
+      from collections
+      where user_id = ${userId}
+      order by updated_at desc
+    `;
+    return rows
+      .map((row) =>
+        coerceCollection({
+          id: row.id,
+          name: row.name,
+          kind: row.kind,
+          createdAt: asNumber(row.created_at),
+          updatedAt: asNumber(row.updated_at),
+        }),
+      )
+      .filter(Boolean) as Collection[];
+  }
 }
 
 async function upsertCollectionRow(userId: string, input: Collection): Promise<void> {
@@ -315,14 +416,27 @@ async function upsertCollectionRow(userId: string, input: Collection): Promise<v
   const sql = await getSql();
   const name = input.name.trim().slice(0, 40) || "未命名";
   const kind = isCollectionKind(input.kind) ? input.kind : "custom";
-  await sql`
-    insert into collections (user_id, id, name, kind, created_at, updated_at)
-    values (${userId}, ${input.id}, ${name}, ${kind}, ${input.createdAt}, ${input.updatedAt})
-    on conflict (user_id, id) do update set
-      name = excluded.name,
-      kind = excluded.kind,
-      updated_at = excluded.updated_at
-  `;
+  const groupName = input.groupName.trim().slice(0, 40);
+  try {
+    await sql`
+      insert into collections (user_id, id, name, kind, bucket, created_at, updated_at)
+      values (${userId}, ${input.id}, ${name}, ${kind}, ${groupName}, ${input.createdAt}, ${input.updatedAt})
+      on conflict (user_id, id) do update set
+        name = excluded.name,
+        kind = excluded.kind,
+        bucket = excluded.bucket,
+        updated_at = excluded.updated_at
+    `;
+  } catch {
+    await sql`
+      insert into collections (user_id, id, name, kind, created_at, updated_at)
+      values (${userId}, ${input.id}, ${name}, ${kind}, ${input.createdAt}, ${input.updatedAt})
+      on conflict (user_id, id) do update set
+        name = excluded.name,
+        kind = excluded.kind,
+        updated_at = excluded.updated_at
+    `;
+  }
 }
 
 export const getNotebook = createServerFn({ method: "POST" })
@@ -413,7 +527,7 @@ export const getProblemFn = createServerFn({ method: "POST" })
       select id, created_at, updated_at, source_kind, source_image, title, stem,
              figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
              analysis, notes, error_reason, mastery, review_count, next_review_at,
-             collection_id
+             collection_id, source_batch_id, source_order
       from problems
       where user_id = ${context.userId} and id = ${data.id}
       limit 1

@@ -37,7 +37,13 @@ import {
 } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/capture")({ component: CapturePage });
+export const Route = createFileRoute("/capture")({
+  validateSearch: (search: Record<string, unknown>): { g?: string } => {
+    const g = typeof search.g === "string" ? search.g : "";
+    return g ? { g } : {};
+  },
+  component: CapturePage,
+});
 
 type Stage = "idle" | "loading" | "review";
 
@@ -48,7 +54,11 @@ type ExtractProgress = {
   startedAt: number;
 };
 
-type DraftItem = ExtractedProblem & { sourceImage?: string };
+type DraftItem = ExtractedProblem & {
+  sourceImage?: string;
+  sourceBatchId?: string;
+  sourceOrder?: number;
+};
 
 function defaultCropBox(hint?: ImageBBox): ImageBBox {
   if (hint && hint.w * hint.h <= 0.6) return hint;
@@ -94,6 +104,7 @@ function waitForJob(
 }
 
 function CapturePage() {
+  const { g: incomingGroup } = Route.useSearch();
   const navigate = useNavigate();
   const addProblem = useProblemStore((s) => s.addProblem);
   const problems = useProblemStore((s) => s.problems);
@@ -125,10 +136,16 @@ function CapturePage() {
   }, []);
 
   useEffect(() => {
-    if (!userId || typeof window === "undefined") return;
+    if (incomingGroup && collections.some((item) => item.id === incomingGroup)) {
+      setCollectionId(incomingGroup);
+    }
+  }, [incomingGroup, collections]);
+
+  useEffect(() => {
+    if (!userId || typeof window === "undefined" || incomingGroup) return;
     const last = window.localStorage.getItem(`moti-last-collection:${userId}`) ?? "";
     if (last && !jobIdRef.current) setCollectionId((cur) => cur || last);
-  }, [userId]);
+  }, [userId, incomingGroup]);
 
   useEffect(() => {
     let live = true;
@@ -136,7 +153,7 @@ function CapturePage() {
       if (!live) return;
       restored.current = true;
       if (!hold) return;
-      if (hold.collectionId) setCollectionId(hold.collectionId);
+      if (hold.collectionId && (hold.stage !== "idle" || !incomingGroup)) setCollectionId(hold.collectionId);
       if (hold.images.length) setImages(hold.images);
       if (hold.text) setText(hold.text);
       if (hold.drafts.length && hold.stage === "review") {
@@ -153,7 +170,7 @@ function CapturePage() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [incomingGroup]);
 
   useEffect(() => {
     if (!restored.current) return;
@@ -200,7 +217,14 @@ function CapturePage() {
       setStage("idle");
       return;
     }
-    setDrafts(collected);
+    const batchId = crypto.randomUUID();
+    setDrafts(
+      collected.map((item, i) => ({
+        ...item,
+        sourceBatchId: batchId,
+        sourceOrder: i + 1,
+      })),
+    );
     setIndex(0);
     setStage("review");
     jobIdRef.current = "";
@@ -415,7 +439,7 @@ function CapturePage() {
     setDrafts((prev) => prev.map((item, i) => (i === index ? { ...item, ...partial } : item)));
   }
 
-  async function saveOne(item: DraftItem): Promise<string> {
+  async function saveOne(item: DraftItem, order: number): Promise<string> {
     return addProblem({
       sourceKind: item.sourceImage ? "photo" : "text",
       sourceImage: item.sourceImage,
@@ -437,6 +461,8 @@ function CapturePage() {
       reviewCount: 0,
       nextReviewAt: Date.now(),
       collectionId: collectionId || undefined,
+      sourceBatchId: item.sourceBatchId,
+      sourceOrder: item.sourceOrder ?? order,
     });
   }
 
@@ -444,7 +470,7 @@ function CapturePage() {
     const item = drafts[index];
     if (!item) return;
     try {
-      await saveOne(item);
+      await saveOne(item, index + 1);
       const remain = drafts.filter((_, i) => i !== index);
       toast.success(collectionLabel());
       if (!remain.length) {
@@ -494,8 +520,8 @@ function CapturePage() {
     if (!drafts.length) return;
     setBusy(true);
     try {
-      for (const item of drafts) {
-        await saveOne(item);
+      for (const [i, item] of drafts.entries()) {
+        await saveOne(item, i + 1);
       }
       toast.success(`${collectionLabel()}，${drafts.length} 道。可继续拍`);
       resetForMore();
@@ -544,6 +570,8 @@ function CapturePage() {
                 ...next,
                 sourceImage: current.sourceImage,
                 bbox: current.bbox,
+                sourceBatchId: current.sourceBatchId,
+                sourceOrder: current.sourceOrder,
                 figures: next.figures.map((fig) => ({ ...fig, svg: "", image: undefined })),
               }
             : item,
@@ -561,11 +589,10 @@ function CapturePage() {
   const draft = drafts[index];
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div>
-        <p className="text-sm font-medium tracking-wide text-primary">收录</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">拍下错题</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">拍下错题</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           先选组，再连续拍。多张试卷一次识别。多道题会自动拆开。
         </p>
         <div className="mt-4">

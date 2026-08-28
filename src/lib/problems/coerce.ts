@@ -80,6 +80,11 @@ export function coerceProblem(raw: unknown): Problem | null {
     reviewCount: Math.min(999, Math.max(0, Math.round(asNumber(item.reviewCount)))),
     nextReviewAt: asNumber(item.nextReviewAt, Date.now()),
     collectionId: asString(item.collectionId).slice(0, 80) || undefined,
+    sourceBatchId: asString(item.sourceBatchId).slice(0, 80) || undefined,
+    sourceOrder: (() => {
+      const n = Math.round(asNumber(item.sourceOrder, 0));
+      return n > 0 ? n : undefined;
+    })(),
   };
 }
 
@@ -107,6 +112,8 @@ export function mergeProblems(primary: Problem[], secondary: Problem[]): Problem
       ...newer,
       sourceImage: newer.sourceImage || older.sourceImage,
       collectionId: newer.collectionId || older.collectionId,
+      sourceBatchId: newer.sourceBatchId || older.sourceBatchId,
+      sourceOrder: newer.sourceOrder ?? older.sourceOrder,
       figures:
         newer.figures.some((f) => f.image || f.svg)
           ? newer.figures.map((fig, i) => ({

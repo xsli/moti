@@ -105,10 +105,10 @@ export function ArrangeList({
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold">排版</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">排版</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             按住左侧横条拖动排序。{handout ? "学案按要点 / 例题 / 练习分栏。" : `总分 ${total} 分。`}
           </p>

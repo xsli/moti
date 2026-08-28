@@ -1,8 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { FilterMenu, DateMenu } from "@/components/notebook/filter-menu";
 import { ProblemCard } from "@/components/notebook/problem-card";
+import { TagFilter } from "@/components/notebook/tag-filter";
 import { ArrangeList, SheetKindToggle } from "@/components/paper/arrange-list";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { ExamSheet } from "@/components/paper/exam-sheet";
@@ -12,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { resolveExamItems, rowsFromIds, type PaperRow, type SheetKind } from "@/lib/paper/layout";
 import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
+import { paperFileStem, saveSamplePdf } from "@/lib/paper/sample";
 import { applyTemplateRows } from "@/lib/paper/session";
 import {
   BLANK_LINE_OPTIONS,
@@ -23,6 +26,7 @@ import {
 } from "@/lib/paper/space";
 import { usePaperStore } from "@/lib/paper/store";
 import { formatLoggedDateLong, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
+import { idsInSourceOrder, sortBySourceOrder } from "@/lib/problems/order";
 import { useProblemStore } from "@/lib/problems/store";
 import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
@@ -182,13 +186,14 @@ function PaperPicker() {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return problems.filter((p) => {
+    const list = problems.filter((p) => {
       if (filter !== "all" && p.subject !== filter) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
       if (tag && !p.tags.includes(tag)) return false;
       if (!q) return true;
       return `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase().includes(q);
     });
+    return sortBySourceOrder(list);
   }, [problems, filter, dateFilter, dateDay, tag, query]);
 
   const hiddenPicked = useMemo(
@@ -218,7 +223,7 @@ function PaperPicker() {
     });
   }
 
-  const chips: { id: "all" | Subject; label: string }[] = [
+  const subjectOptions: { id: "all" | Subject; label: string }[] = [
     { id: "all", label: "全部科目" },
     ...SUBJECTS.map((s) => ({ id: s as "all" | Subject, label: SUBJECT_LABEL[s] })),
   ];
@@ -226,7 +231,7 @@ function PaperPicker() {
   return (
     <div className="flex flex-col gap-6">
         <div>
-          <h1 className="font-display text-3xl font-semibold">组卷</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">组卷</h1>
           <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。筛选不影响已选。</p>
         </div>
 
@@ -244,91 +249,24 @@ function PaperPicker() {
             aria-label="搜索题目"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {chips.map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => setFilter(chip.id)}
-              className={cn(
-                "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                filter === chip.id ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
-              )}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ["all", "全部日期"],
-              ["today", "今天"],
-              ["7d", "近7天"],
-              ["30d", "近30天"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setDateFilter(id);
-                setDateDay("");
-              }}
-              className={cn(
-                "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                dateFilter === id ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-          <label className="inline-flex h-9 items-center rounded-full bg-secondary px-3 text-sm text-muted-foreground">
-            <span className="sr-only">按某一天筛选</span>
-            <input
-              type="date"
-              value={dateFilter === "day" ? dateDay : ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  setDateFilter("all");
-                  setDateDay("");
-                  return;
-                }
-                setDateDay(value);
-                setDateFilter("day");
-              }}
-              className="bg-transparent text-sm text-fg outline-none"
-            />
-          </label>
+          <FilterMenu
+            idleLabel="科目"
+            emptyValue="all"
+            value={filter}
+            options={subjectOptions}
+            onChange={setFilter}
+          />
+          <DateMenu
+            value={dateFilter}
+            day={dateDay}
+            onChange={(next, day) => {
+              setDateFilter(next);
+              setDateDay(day);
+            }}
+          />
+          <TagFilter tags={allTags} value={tag} onChange={setTag} />
         </div>
-        {allTags.length ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setTag("")}
-              className={cn(
-                "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                !tag ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
-              )}
-            >
-              全部标签
-            </button>
-            {allTags.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setTag((prev) => (prev === item ? "" : item))}
-                className={cn(
-                  "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                  tag === item ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div className="sticky top-16 z-10 flex flex-col gap-2 rounded-xl bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
@@ -348,7 +286,7 @@ function PaperPicker() {
               size="sm"
               disabled={!picked.size}
               onClick={() => {
-                const n = addToBasket([...picked]);
+                const n = addToBasket(idsInSourceOrder(problems, picked));
                 toast.success(n ? `已放入组卷篮 ${n} 道` : "这些题已在篮子里");
               }}
             >
@@ -357,7 +295,7 @@ function PaperPicker() {
             <Button
               size="sm"
               disabled={!picked.size}
-              onClick={() => navigate({ to: "/paper", search: { ids: [...picked].join(","), tpl: "" } })}
+              onClick={() => navigate({ to: "/paper", search: { ids: idsInSourceOrder(problems, picked).join(","), tpl: "" } })}
             >
               去排版
             </Button>
@@ -436,8 +374,8 @@ function PaperPreview({
   const [tplName, setTplName] = useState(title);
   const [exporting, setExporting] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const pdfBlob = useRef<Blob | null>(null);
   const dateLabel = formatLoggedDateLong(Date.now());
+  const pdfName = `${paperFileStem(title)}.pdf`;
 
   function downloadTex() {
     const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto, sheetKind });
@@ -445,7 +383,8 @@ function PaperPreview({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${title}.tex`;
+    a.download = `${paperFileStem(title)}.tex`;
+    a.rel = "noopener";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -453,16 +392,32 @@ function PaperPreview({
     toast.success("已下载 TeX，用 XeLaTeX 编译");
   }
 
+  async function blobToBase64(blob: Blob): Promise<string> {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const step = 0x8000;
+    for (let i = 0; i < bytes.length; i += step) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + step));
+    }
+    return btoa(bin);
+  }
+
   async function generatePdf() {
     setExporting(true);
     try {
       const blob = await buildExamPdf([], { title, dateLabel, withAnswers });
-      pdfBlob.current = blob;
       const url = URL.createObjectURL(blob);
       setPdfUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return url;
       });
+      try {
+        const base64 = await blobToBase64(blob);
+        await saveSamplePdf({ data: { name: paperFileStem(title), base64 } });
+      } catch {
+        /* preview disk is optional */
+      }
       toast.success("PDF 已生成，请点下载");
     } catch (error) {
       console.error(error);
@@ -472,53 +427,12 @@ function PaperPreview({
     }
   }
 
-  async function savePdf() {
-    const blob = pdfBlob.current;
-    if (!blob) {
-      toast.error("请先生成 PDF");
-      return;
-    }
-    const name = `${title}.pdf`;
-    try {
-      const picker = (
-        window as Window & {
-          showSaveFilePicker?: (options: {
-            suggestedName: string;
-            types: { description: string; accept: Record<string, string[]> }[];
-          }) => Promise<FileSystemFileHandle>;
-        }
-      ).showSaveFilePicker;
-      if (picker) {
-        const handle = await picker({
-          suggestedName: name,
-          types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        toast.success("已保存到电脑");
-        return;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-    }
-
-    const url = pdfUrl ?? URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast.success("已开始下载");
-  }
-
   return (
     <div className="flex flex-col gap-5">
       <div className="no-print flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-semibold">{sheetKind === "handout" ? "预览学案" : "预览试卷"}</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight">{sheetKind === "handout" ? "预览学案" : "预览试卷"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               A4 · {items.filter((item) => item.kind === "problem").length} 道 · 先生成 PDF，再下载
             </p>
@@ -534,9 +448,18 @@ function PaperPreview({
               {exporting ? "正在生成…" : "生成 PDF"}
             </Button>
             {pdfUrl ? (
-              <Button type="button" onClick={() => void savePdf()}>
-                下载 PDF
-              </Button>
+              <>
+                <Button asChild>
+                  <a href={pdfUrl} download={pdfName}>
+                    下载 PDF
+                  </a>
+                </Button>
+                <Button asChild variant="outline">
+                  <a href={pdfUrl} target="_blank" rel="noopener">
+                    打开 PDF
+                  </a>
+                </Button>
+              </>
             ) : null}
           </div>
         </div>

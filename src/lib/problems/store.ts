@@ -28,9 +28,11 @@ interface ProblemState {
   updateProblem: (id: string, patch: Partial<Problem>) => Promise<void>;
   deleteProblem: (id: string) => Promise<void>;
   markReview: (id: string, remembered: boolean) => Promise<void>;
-  addCollection: (input: { name: string; kind?: CollectionKind }) => Promise<string>;
-  updateCollection: (id: string, patch: Partial<Pick<Collection, "name" | "kind">>) => Promise<void>;
+  addCollection: (input: { name: string; kind?: CollectionKind; groupName?: string }) => Promise<string>;
+  updateCollection: (id: string, patch: Partial<Pick<Collection, "name" | "kind" | "groupName">>) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
+  renameFolder: (from: string, to: string) => Promise<number>;
+  reorderProblems: (ids: string[]) => Promise<void>;
   importNotebook: (text: string) => Promise<{ problems: number; collections: number }>;
   exportNotebook: () => Promise<string>;
 }
@@ -115,6 +117,7 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
 
       if (!problems.length && local.length) problems = local;
       if (!collections.length && localCols.length) collections = localCols;
+      persist(userId, problems.length ? problems : local, collections.length ? collections : localCols);
       const missingCols = localCols.filter((item) => !collections.some((row) => row.id === item.id));
       const serverCols = notebook.collections ?? [];
       if (missingCols.length || (localCols.length && !serverCols.length)) {
@@ -131,10 +134,10 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
         await pushAgain({ data: { problems: strippedOnServer } });
       }
 
-      persist(userId, problems, collections);
+      persist(userId, problems.length ? problems : local, collections.length ? collections : localCols);
       set({
-        problems,
-        collections,
+        problems: problems.length ? problems : local,
+        collections: collections.length ? collections : localCols,
         status: "ready",
         error: null,
         userId,
@@ -145,16 +148,16 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
         return;
       }
       console.error("hydrate notebook failed", error);
-      if (get().problems.length || cached.problems.length) {
-        if (!get().problems.length && cached.problems.length) {
-          set({
-            problems: cached.problems,
-            collections: cached.collections,
-            status: "ready",
-            userId,
-            error: null,
-          });
-        }
+      const keepProblems = get().problems.length ? get().problems : cached.problems;
+      const keepCols = get().collections.length ? get().collections : cached.collections;
+      if (keepProblems.length || keepCols.length) {
+        set({
+          problems: keepProblems,
+          collections: keepCols,
+          status: "ready",
+          userId,
+          error: null,
+        });
         return;
       }
       set({
@@ -269,6 +272,7 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       id,
       name: input.name.trim().slice(0, 40) || "未命名",
       kind: input.kind ?? "custom",
+      groupName: (input.groupName ?? "").trim().slice(0, 40),
       createdAt: now,
       updatedAt: now,
     };
@@ -298,6 +302,61 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
     } catch (error) {
       if (isUnauthorized(error)) throw error;
       toast.error("分组改动先记在这台设备上。");
+    }
+  },
+  renameFolder: async (from, to) => {
+    const nextName = to.trim().slice(0, 40);
+    const previous = get().collections;
+    const now = Date.now();
+    const changed = previous.filter((item) => item.groupName === from);
+    if (!changed.length) return 0;
+    const next = previous.map((item) =>
+      item.groupName === from ? { ...item, groupName: nextName, updatedAt: now } : item,
+    );
+    set({ collections: next });
+    persist(get().userId, get().problems, next);
+    try {
+      const { upsertCollectionFn } = await import("./api");
+      for (const item of next.filter((row) => changed.some((c) => c.id === row.id))) {
+        await upsertCollectionFn({ data: item });
+      }
+    } catch (error) {
+      if (isUnauthorized(error)) throw error;
+      toast.error("大组改名先记在这台设备上。");
+    }
+    return changed.length;
+  },
+  reorderProblems: async (ids) => {
+    if (ids.length < 2) return;
+    const previous = get().problems;
+    const first = previous.find((item) => item.id === ids[0]);
+    const batchId = first?.collectionId ? `order:${first.collectionId}` : `order:${ids[0]}`;
+    const now = Date.now();
+    const rank = new Map(ids.map((id, i) => [id, i + 1]));
+    const next = previous.map((item) => {
+      const order = rank.get(item.id);
+      if (!order) return item;
+      return { ...item, sourceOrder: order, sourceBatchId: batchId, updatedAt: now };
+    });
+    set({ problems: next });
+    persist(get().userId, next, get().collections);
+    const changed = ids
+      .map((id) => next.find((item) => item.id === id))
+      .filter(Boolean) as Problem[];
+    try {
+      const { pushProblems } = await import("./api");
+      const chunk = 40;
+      for (let i = 0; i < changed.length; i += chunk) {
+        await pushProblems({ data: { problems: changed.slice(i, i + chunk) } });
+      }
+      set({ syncedAt: Date.now() });
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        set({ problems: previous });
+        persist(get().userId, previous, get().collections);
+        throw error;
+      }
+      toast.error("顺序已记下，云端稍后再同步。");
     }
   },
   deleteCollection: async (id) => {

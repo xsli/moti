@@ -26,6 +26,20 @@ export function emptySession(): PaperSession {
   return { basket: [], templates: [] };
 }
 
+export function mergeSession(primary: PaperSession, secondary: PaperSession): PaperSession {
+  const templates = [...primary.templates];
+  for (const item of secondary.templates) {
+    const index = templates.findIndex((row) => row.id === item.id);
+    if (index < 0) templates.push(item);
+    else if (item.updatedAt >= (templates[index]?.updatedAt ?? 0)) templates[index] = item;
+  }
+  templates.sort((a, b) => b.updatedAt - a.updatedAt);
+  return {
+    basket: [...new Set([...primary.basket, ...secondary.basket])].slice(0, BASKET_MAX),
+    templates: templates.slice(0, TEMPLATE_MAX),
+  };
+}
+
 function asHeading(row: Record<string, unknown>, id: string): PaperRow | null {
   const title = String(row.title ?? "").slice(0, 40);
   const perScore = Math.max(0, Math.round(Number(row.perScore) || 0));

@@ -8,6 +8,7 @@ import {
   deleteTemplate,
   emptySession,
   idsFromRows,
+  mergeSession,
   parseSession,
   removeFromBasket,
   saveTemplate,
@@ -78,6 +79,27 @@ describe("paper session", () => {
     assert.equal(parsed.templates[0]?.name, "A");
     const gone = deleteTemplate(parsed, parsed.templates[0]?.id ?? "");
     assert.equal(gone.templates.length, 0);
+  });
+
+  it("merges templates across user keys without dropping newer ones", () => {
+    const a = saveTemplate(emptySession(), {
+      name: "冬令营",
+      title: "HB 2025冬令营",
+      withAnswers: false,
+      rows: [{ kind: "problem", id: "x", problemId: "p1" }],
+    });
+    const b = saveTemplate(emptySession(), {
+      name: "春令营",
+      title: "春令营",
+      withAnswers: false,
+      rows: [{ kind: "problem", id: "y", problemId: "p2" }],
+    });
+    const merged = mergeSession(a, b);
+    assert.equal(merged.templates.length, 2);
+    assert.deepEqual(
+      merged.templates.map((item) => item.name).sort(),
+      ["冬令营", "春令营"],
+    );
   });
 
   it("applies heading layout onto a new problem list", () => {

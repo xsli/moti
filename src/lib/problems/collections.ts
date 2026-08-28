@@ -8,16 +8,25 @@ export const COLLECTION_KIND_LABEL: Record<CollectionKind, string> = {
   custom: "分组",
 };
 
+export const UNGROUPED_FOLDER = "未分大组";
+
 export interface Collection {
   id: string;
   name: string;
   kind: CollectionKind;
+  groupName: string;
   createdAt: number;
   updatedAt: number;
 }
 
 export function isCollectionKind(value: string): value is CollectionKind {
   return (COLLECTION_KINDS as readonly string[]).includes(value);
+}
+
+export function coerceGroupName(raw: unknown): string {
+  const value = String(raw ?? "").trim().slice(0, 40);
+  if (value === "institution" || value === "textbook") return "";
+  return value;
 }
 
 export function defaultCollectionName(now = Date.now()): string {
@@ -36,6 +45,7 @@ export function coerceCollection(raw: unknown): Collection | null {
     id,
     name,
     kind,
+    groupName: coerceGroupName(item.groupName ?? item.bucket),
     createdAt: Number(item.createdAt) || Date.now(),
     updatedAt: Number(item.updatedAt) || Date.now(),
   };
@@ -58,4 +68,16 @@ export function mergeCollections(primary: Collection[], secondary: Collection[])
     if (!current || item.updatedAt >= current.updatedAt) map.set(item.id, item);
   }
   return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function collectionFolders(collections: { groupName: string }[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const item of collections) {
+    const name = item.groupName.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names.sort((a, b) => a.localeCompare(b, "zh"));
 }

@@ -47,7 +47,7 @@ function ProblemPage() {
 
   if (status !== "ready" && !problem) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className="space-y-4">
         <div className="h-8 w-24 animate-pulse rounded-md bg-rule" />
         <div className="h-64 animate-pulse rounded-xl bg-rule" />
       </div>
@@ -143,7 +143,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="ghost" size="sm">
           <Link to="/">

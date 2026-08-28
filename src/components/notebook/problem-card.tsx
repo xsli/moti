@@ -46,6 +46,12 @@ export function ProblemCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <span>{formatLoggedDate(problem.createdAt)}</span>
+            {problem.sourceOrder ? (
+              <>
+                <span>·</span>
+                <span>原序 {problem.sourceOrder}</span>
+              </>
+            ) : null}
             <span>·</span>
             <span>{SUBJECT_LABEL[problem.subject]}</span>
             {problem.tags.slice(0, 2).map((tag) => (
@@ -79,6 +85,9 @@ export function ProblemCard({
           ) : null}
           <div className="mt-auto flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">{formatLoggedDate(problem.createdAt)}</span>
+            {problem.sourceOrder ? (
+              <span className="text-xs text-muted-foreground">原序 {problem.sourceOrder}</span>
+            ) : null}
             <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
             {problem.tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="outline">

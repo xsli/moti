@@ -1,10 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Download, FolderOpen, LayoutGrid, List, Search, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, Download, FolderOpen, LayoutGrid, List, Pencil, Plus, Search, Upload } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Logo } from "@/components/brand/logo";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
-import { ProblemCard } from "@/components/notebook/problem-card";
+import { DateMenu, FilterMenu } from "@/components/notebook/filter-menu";
+import { SortableProblems } from "@/components/notebook/sortable-problems";
 import { TagEditor } from "@/components/notebook/tag-editor";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,12 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   COLLECTION_KIND_LABEL,
+  COLLECTION_KINDS,
+  UNGROUPED_FOLDER,
   defaultCollectionName,
   type CollectionKind,
 } from "@/lib/problems/collections";
+import { idsInSourceOrder, sortBySourceOrder, spliceVisibleOrder } from "@/lib/problems/order";
 import { formatLoggedDate, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
@@ -54,6 +58,9 @@ function Home() {
   const collections = useProblemStore((s) => s.collections);
   const deleteCollection = useProblemStore((s) => s.deleteCollection);
   const addCollection = useProblemStore((s) => s.addCollection);
+  const updateCollection = useProblemStore((s) => s.updateCollection);
+  const renameFolder = useProblemStore((s) => s.renameFolder);
+  const reorderProblems = useProblemStore((s) => s.reorderProblems);
   const status = useProblemStore((s) => s.status);
   const error = useProblemStore((s) => s.error);
   const userId = useProblemStore((s) => s.userId);
@@ -73,6 +80,7 @@ function Home() {
   const [tagOpen, setTagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [folderRename, setFolderRename] = useState<{ from: string; to: string; others: number } | null>(null);
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [commonTags, setCommonTags] = useState<string[]>([]);
   const [batchGroupId, setBatchGroupId] = useState("");
@@ -93,7 +101,7 @@ function Home() {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return problems.filter((p) => {
+    const list = problems.filter((p) => {
       if (g === "ungrouped" && p.collectionId) return false;
       if (g && g !== "all" && g !== "ungrouped" && p.collectionId !== g) return false;
       if (filter === "due") {
@@ -106,6 +114,8 @@ function Home() {
       const hay = `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
+    if (g && g !== "all") return sortBySourceOrder(list);
+    return list;
   }, [problems, filter, query, dateFilter, dateDay, g]);
 
   const allTags = useMemo(() => {
@@ -121,6 +131,7 @@ function Home() {
   ];
 
   const selectedCount = selected.size;
+  const currentCol = g && g !== "all" && g !== "ungrouped" ? collections.find((item) => item.id === g) : undefined;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -230,36 +241,46 @@ function Home() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-col gap-6">
+      <section className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <Logo />
-        <div className="flex flex-col items-start gap-3 sm:items-end">
-          <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
-            <Stat label="收录" value={problems.length} />
-            <Stat label="待复习" value={dueCount} />
-            <Stat label="已掌握" value={masteredCount} />
-          </div>
-          <div className="flex gap-2">
-            <input
-              ref={importRef}
-              type="file"
-              accept="application/json,.json"
-              className="sr-only"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                void onImportFile(file);
-              }}
-            />
-            <Button size="sm" variant="outline" onClick={() => importRef.current?.click()} disabled={packing}>
-              <Upload className="size-4" />
-              导入
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => void downloadBackup()} disabled={packing}>
-              <Download className="size-4" />
-              {packing ? "正在打包…" : "导出整本"}
-            </Button>
-          </div>
+        <div className="flex flex-wrap items-baseline gap-4">
+          <Stat label="收录" value={problems.length} />
+          <Stat label="待复习" value={dueCount} />
+          <Stat label="已掌握" value={masteredCount} />
+        </div>
+        <div className="ml-auto flex items-center">
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              void onImportFile(file);
+            }}
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs text-muted-foreground"
+            onClick={() => importRef.current?.click()}
+            disabled={packing}
+          >
+            <Upload className="size-3.5" />
+            导入
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs text-muted-foreground"
+            onClick={() => void downloadBackup()}
+            disabled={packing}
+          >
+            <Download className="size-3.5" />
+            {packing ? "打包中" : "导出"}
+          </Button>
         </div>
       </section>
 
@@ -275,6 +296,11 @@ function Home() {
             navigate({ to: "/", search: { g: id } });
           }}
           onDelete={(id) => void deleteCollection(id)}
+          onRenameFolder={(from, to) => {
+            void renameFolder(from, to).then((n) => {
+              toast.success(`已把 ${n} 个小组改到「${to || "未分大组"}」`);
+            });
+          }}
         />
       ) : (
       <>
@@ -286,26 +312,65 @@ function Home() {
               分组
             </Link>
           </Button>
-          <h2 className="font-display text-xl font-semibold">
-            {g === "all" ? "全部题目" : g === "ungrouped" ? "未分组" : collections.find((item) => item.id === g)?.name || "分组"}
-          </h2>
-          <span className="text-sm text-muted-foreground">{visible.length} 道</span>
-          {g && g !== "all" && g !== "ungrouped" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-auto"
-              onClick={() =>
-                navigate({
-                  to: "/paper",
-                  search: { ids: problems.filter((p) => p.collectionId === g).map((p) => p.id).join(","), tpl: "" },
-                })
-              }
-            >
-              本组组卷
-            </Button>
+          {g === "all" || g === "ungrouped" || !currentCol ? (
+            <>
+              <h2 className="font-display text-xl font-semibold">
+                {g === "all" ? "全部题目" : g === "ungrouped" ? "未分组" : "分组"}
+              </h2>
+              <span className="text-sm text-muted-foreground">{visible.length} 道</span>
+            </>
+          ) : null}
+          {currentCol ? (
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button asChild size="sm">
+                <Link to="/capture" search={{ g: currentCol.id }}>
+                  <Camera className="size-4" />
+                  拍题
+                </Link>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  navigate({
+                    to: "/paper",
+                    search: {
+                      ids: idsInSourceOrder(
+                        problems,
+                        problems.filter((p) => p.collectionId === g).map((p) => p.id),
+                      ).join(","),
+                      tpl: "",
+                    },
+                  })
+                }
+              >
+                本组组卷
+              </Button>
+            </div>
           ) : null}
         </div>
+        {currentCol ? (
+          <CollectionIdentity
+            name={currentCol.name}
+            groupName={currentCol.groupName}
+            kind={currentCol.kind}
+            count={visible.length}
+            suggestions={collections.map((item) => item.groupName)}
+            sortable={visible.length > 1}
+            onPatch={(patch) => {
+              if (patch.groupName != null && patch.groupName !== currentCol.groupName) {
+                const others = collections.filter(
+                  (item) => item.id !== currentCol.id && item.groupName === currentCol.groupName,
+                ).length;
+                if (currentCol.groupName.trim() && others > 0) {
+                  setFolderRename({ from: currentCol.groupName, to: patch.groupName, others });
+                  return;
+                }
+              }
+              void updateCollection(currentCol.id, patch);
+            }}
+          />
+        ) : null}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -373,7 +438,7 @@ function Home() {
                 variant="outline"
                 disabled={!selectedCount}
                 onClick={() => {
-                  const n = addToBasket([...selected]);
+                  const n = addToBasket(idsInSourceOrder(problems, selected));
                   toast.success(n ? `已放入组卷篮 ${n} 道` : "这些题已在篮子里");
                 }}
               >
@@ -384,7 +449,7 @@ function Home() {
                 variant="outline"
                 disabled={!selectedCount}
                 onClick={() =>
-                  navigate({ to: "/paper", search: { ids: [...selected].join(","), tpl: "" } })
+                  navigate({ to: "/paper", search: { ids: idsInSourceOrder(problems, selected).join(","), tpl: "" } })
                 }
               >
                 组卷
@@ -430,67 +495,22 @@ function Home() {
             </div>
           </div>
         ) : null}
-        <div className="flex flex-wrap gap-2">
-          {chips.map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => setFilter(chip.id)}
-              className={cn(
-                "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                filter === chip.id
-                  ? "bg-fg text-primary-foreground"
-                  : "bg-secondary text-muted-foreground hover:text-fg",
-              )}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ["all", "全部日期"],
-              ["today", "今天"],
-              ["7d", "近7天"],
-              ["30d", "近30天"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setDateFilter(id);
-                setDateDay("");
-              }}
-              className={cn(
-                "h-9 shrink-0 rounded-full px-3.5 text-sm transition-colors",
-                dateFilter === id
-                  ? "bg-fg text-primary-foreground"
-                  : "bg-secondary text-muted-foreground hover:text-fg",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-          <label className="inline-flex h-9 items-center rounded-full bg-secondary px-3 text-sm text-muted-foreground">
-            <span className="sr-only">按某一天筛选</span>
-            <input
-              type="date"
-              value={dateFilter === "day" ? dateDay : ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  setDateFilter("all");
-                  setDateDay("");
-                  return;
-                }
-                setDateDay(value);
-                setDateFilter("day");
-              }}
-              className="bg-transparent text-sm text-fg outline-none"
-            />
-          </label>
+          <FilterMenu
+            idleLabel="科目"
+            emptyValue={"all" as Filter}
+            value={filter}
+            options={chips}
+            onChange={setFilter}
+          />
+          <DateMenu
+            value={dateFilter}
+            day={dateDay}
+            onChange={(next, day) => {
+              setDateFilter(next);
+              setDateDay(day);
+            }}
+          />
         </div>
       </div>
 
@@ -512,18 +532,36 @@ function Home() {
         <div className="rounded-xl bg-surface px-6 py-16 text-center shadow-[var(--shadow-border)]">
           <p className="font-display text-xl font-semibold">还没有这类题目</p>
           <Button asChild className="mt-6">
-            <Link to="/capture">拍下错题</Link>
+            <Link to="/capture" search={currentCol ? { g: currentCol.id } : {}}>
+              拍下错题
+            </Link>
           </Button>
         </div>
       ) : (
         <ProblemSections
           problems={visible}
           collections={collections}
-          byCollection={g === "all"}
+          groupBy={g === "all" ? "collection" : "none"}
           layout={layout}
           selecting={selecting}
           selected={selected}
           onToggle={toggle}
+          onReorder={
+            currentCol
+              ? (visibleIds) => {
+                  const full = idsInSourceOrder(
+                    problems,
+                    problems.filter((p) => p.collectionId === currentCol.id).map((p) => p.id),
+                  );
+                  const merged = spliceVisibleOrder(
+                    full,
+                    visible.map((p) => p.id),
+                    visibleIds,
+                  );
+                  void reorderProblems(merged);
+                }
+              : undefined
+          }
         />
       )}
 
@@ -581,6 +619,42 @@ function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={Boolean(folderRename)} onOpenChange={(open) => !open && setFolderRename(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>同步改大组？</DialogTitle>
+            <DialogDescription>
+              「{folderRename?.from}」下还有 {folderRename?.others} 个小组。一起改成「{folderRename?.to || "未分大组"}」，还是只改当前这组？
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setFolderRename(null)}>
+              取消
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (!currentCol || !folderRename) return;
+                void updateCollection(currentCol.id, { groupName: folderRename.to });
+                setFolderRename(null);
+              }}
+            >
+              只改这一组
+            </Button>
+            <Button
+              onClick={() => {
+                if (!folderRename) return;
+                void renameFolder(folderRename.from, folderRename.to).then((n) => {
+                  toast.success(`已把 ${n} 个小组放到「${folderRename.to || "未分大组"}」`);
+                });
+                setFolderRename(null);
+              }}
+            >
+              全部一起改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </>
     )}
     </div>
@@ -590,55 +664,47 @@ function Home() {
 function ProblemSections({
   problems,
   collections,
-  byCollection,
+  groupBy,
   layout,
   selecting,
   selected,
   onToggle,
+  onReorder,
 }: {
   problems: Problem[];
   collections: { id: string; name: string }[];
-  byCollection: boolean;
+  groupBy: "collection" | "none";
   layout: BrowseLayout;
   selecting: boolean;
   selected: Set<string>;
   onToggle: (id: string) => void;
+  onReorder?: (ids: string[]) => void;
 }) {
   const sections = useMemo(() => {
-    if (!byCollection) {
-      return SUBJECTS.map((subject) => ({
-        key: subject,
-        title: SUBJECT_LABEL[subject],
-        items: problems.filter((p) => p.subject === subject),
-      })).filter((section) => section.items.length);
-    }
+    if (groupBy === "none") return [];
     const named = collections
       .map((item) => ({
         key: item.id,
         title: item.name,
-        items: problems.filter((p) => p.collectionId === item.id),
+        items: sortBySourceOrder(problems.filter((p) => p.collectionId === item.id)),
       }))
       .filter((section) => section.items.length);
     const loose = problems.filter((p) => !p.collectionId);
-    return loose.length ? [...named, { key: "ungrouped", title: "未分组", items: loose }] : named;
-  }, [byCollection, collections, problems]);
-
-  const grid = layout === "card" ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-3" : "flex flex-col gap-2";
+    return loose.length
+      ? [...named, { key: "ungrouped", title: "未分组", items: sortBySourceOrder(loose) }]
+      : named;
+  }, [groupBy, collections, problems]);
 
   if (sections.length <= 1) {
     return (
-      <div className={grid}>
-        {problems.map((problem) => (
-          <ProblemCard
-            key={problem.id}
-            problem={problem}
-            layout={layout}
-            selecting={selecting}
-            selected={selected.has(problem.id)}
-            onToggle={() => onToggle(problem.id)}
-          />
-        ))}
-      </div>
+      <SortableProblems
+        problems={problems}
+        layout={layout}
+        selecting={selecting}
+        selected={selected}
+        onToggle={onToggle}
+        onReorder={onReorder}
+      />
     );
   }
 
@@ -650,18 +716,13 @@ function ProblemSections({
             <h3 className="font-display text-base font-semibold">{section.title}</h3>
             <span className="text-xs text-muted-foreground">{section.items.length}</span>
           </div>
-          <div className={grid}>
-            {section.items.map((problem) => (
-              <ProblemCard
-                key={problem.id}
-                problem={problem}
-                layout={layout}
-                selecting={selecting}
-                selected={selected.has(problem.id)}
-                onToggle={() => onToggle(problem.id)}
-              />
-            ))}
-          </div>
+          <SortableProblems
+            problems={section.items}
+            layout={layout}
+            selecting={selecting}
+            selected={selected}
+            onToggle={onToggle}
+          />
         </section>
       ))}
     </div>
@@ -674,14 +735,18 @@ function GroupHome({
   dueCount,
   onCreate,
   onDelete,
+  onRenameFolder,
 }: {
   problems: Problem[];
-  collections: { id: string; name: string; kind: CollectionKind }[];
+  collections: { id: string; name: string; kind: CollectionKind; groupName: string }[];
   dueCount: number;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  onRenameFolder: (from: string, to: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   const now = Date.now();
   const ungrouped = problems.filter((p) => !p.collectionId);
   const dueOf = (ids: Set<string> | "none" | "all") =>
@@ -702,32 +767,62 @@ function GroupHome({
     return [...list].sort((a, b) => b.createdAt - a.createdAt)[0];
   };
 
-  const clusters = KIND_ORDER.map((kind) => ({
-    kind,
-    items: filtered
-      .filter((item) => item.kind === kind)
-      .sort((a, b) => (latest(b.id)?.createdAt ?? 0) - (latest(a.id)?.createdAt ?? 0)),
-  })).filter((cluster) => cluster.items.length);
+  const folders = Array.from(
+    new Set(filtered.map((item) => item.groupName.trim()).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b, "zh"));
+  if (filtered.some((item) => !item.groupName.trim())) folders.push("");
+
+  const clusters = folders.map((folder) => ({
+    folder,
+    kinds: KIND_ORDER.map((kind) => ({
+      kind,
+      items: filtered
+        .filter((item) => (item.groupName.trim() || "") === folder && item.kind === kind)
+        .sort((a, b) => (latest(b.id)?.createdAt ?? 0) - (latest(a.id)?.createdAt ?? 0)),
+    })).filter((cluster) => cluster.items.length),
+  })).filter((group) => group.kinds.length);
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">按试卷或单元查看。组里可以切列表，一屏能看更多题。</p>
-        <div className="flex gap-2">
-          <div className="relative min-w-40 flex-1 sm:w-56 sm:flex-none">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
+      <div className="flex items-center gap-1">
+        {searchOpen || query ? (
+          <div className="flex h-8 items-center gap-1 rounded-full bg-secondary/70 px-2">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" />
+            <input
+              ref={searchRef}
               value={query}
+              autoFocus
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="找分组…"
-              className="pl-9"
+              onBlur={() => {
+                if (!query.trim()) setSearchOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setQuery("");
+                  setSearchOpen(false);
+                }
+              }}
+              className="w-28 bg-transparent text-sm text-fg outline-none"
               aria-label="搜索分组"
             />
           </div>
-          <Button size="sm" variant="outline" onClick={onCreate}>
-            新建组
+        ) : (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8 min-h-8 text-muted-foreground"
+            aria-label="搜索分组"
+            onClick={() => {
+              setSearchOpen(true);
+              window.setTimeout(() => searchRef.current?.focus(), 0);
+            }}
+          >
+            <Search className="size-4" />
           </Button>
-        </div>
+        )}
+        <Button size="icon" variant="ghost" className="size-8 min-h-8 text-muted-foreground" aria-label="新建组" onClick={onCreate}>
+          <Plus className="size-4" />
+        </Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Link
@@ -755,8 +850,11 @@ function GroupHome({
           </Link>
         ) : null}
       </div>
-      {clusters.map((cluster) => (
-        <section key={cluster.kind} className="flex flex-col gap-3">
+      {clusters.map((group) => (
+        <section key={group.folder || "none"} className="flex flex-col gap-4">
+          <FolderHeading name={group.folder} onRename={(next) => onRenameFolder(group.folder, next)} />
+          {group.kinds.map((cluster) => (
+        <section key={`${group.folder}-${cluster.kind}`} className="flex flex-col gap-3">
           <h3 className="text-xs font-medium tracking-wider text-muted-foreground">
             {COLLECTION_KIND_LABEL[cluster.kind]}
           </h3>
@@ -788,6 +886,8 @@ function GroupHome({
             })}
           </div>
         </section>
+          ))}
+        </section>
       ))}
       {q && !filtered.length ? (
         <div className="rounded-xl bg-surface px-6 py-10 text-center shadow-[var(--shadow-border)]">
@@ -807,11 +907,205 @@ function GroupHome({
   );
 }
 
+function FolderHeading({ name, onRename }: { name: string; onRename: (next: string) => void }) {
+  const [text, setText] = useState(name);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    setText(name);
+  }, [name]);
+
+  function commit() {
+    const next = text.trim();
+    setEditing(false);
+    if (next !== name) onRename(next);
+    else setText(name);
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={text}
+          autoFocus
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") {
+              setText(name);
+              setEditing(false);
+            }
+          }}
+          placeholder={UNGROUPED_FOLDER}
+          className="h-9 max-w-xs font-display text-base font-semibold"
+          aria-label="大组名称"
+        />
+        <Button size="sm" onClick={commit}>
+          保存
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setText(name);
+            setEditing(false);
+          }}
+        >
+          取消
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h2 className="font-display text-lg font-semibold">{name || UNGROUPED_FOLDER}</h2>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7 min-h-7 text-muted-foreground"
+        aria-label="改名"
+        onClick={() => setEditing(true)}
+      >
+        <Pencil className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function CollectionIdentity({
+  name,
+  groupName,
+  kind,
+  count,
+  suggestions,
+  sortable,
+  onPatch,
+}: {
+  name: string;
+  groupName: string;
+  kind: CollectionKind;
+  count: number;
+  suggestions: string[];
+  sortable?: boolean;
+  onPatch: (patch: { name?: string; groupName?: string; kind?: CollectionKind }) => void;
+}) {
+  return (
+    <div className="rounded-xl bg-surface px-4 py-3 shadow-[var(--shadow-border)]">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.25fr)] sm:items-end">
+        <RenameField
+          label="大组"
+          value={groupName}
+          placeholder="例如华杯真题"
+          suggestions={suggestions}
+          onCommit={(next) => onPatch({ groupName: next })}
+        />
+        <p className="hidden pb-2 text-lg text-muted-foreground/50 sm:block" aria-hidden>
+          /
+        </p>
+        <RenameField
+          label="小组"
+          value={name}
+          placeholder="例如 2025dly"
+          display
+          required
+          onCommit={(next) => onPatch({ name: next })}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {COLLECTION_KINDS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={cn(
+              "h-7 rounded-full px-2.5 text-xs transition-colors",
+              kind === item ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+            )}
+            onClick={() => {
+              if (item !== kind) onPatch({ kind: item });
+            }}
+          >
+            {COLLECTION_KIND_LABEL[item]}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {count} 道{sortable ? " · 按住左上角横条可改顺序" : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RenameField({
+  label,
+  value,
+  placeholder,
+  suggestions = [],
+  display,
+  required,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  suggestions?: string[];
+  display?: boolean;
+  required?: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  const listId = useId();
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+  const names = [...new Set(suggestions.map((item) => item.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh"),
+  );
+
+  function commit() {
+    const next = text.trim();
+    if (required && !next) {
+      setText(value);
+      return;
+    }
+    if (next !== value) onCommit(next);
+  }
+
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="text-[11px] tracking-wider text-muted-foreground">{label}</span>
+      <input
+        value={text}
+        list={names.length ? listId : undefined}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder={placeholder}
+        className={cn(
+          "h-10 min-w-0 rounded-lg bg-secondary/80 px-3 text-fg outline-none ring-0 transition-shadow",
+          "placeholder:text-muted-foreground/70 focus:bg-bg focus:shadow-[var(--shadow-border)]",
+          display ? "font-display text-lg font-semibold" : "text-sm",
+        )}
+      />
+      {names.length ? (
+        <datalist id={listId}>
+          {names.map((item) => (
+            <option key={item} value={item} />
+          ))}
+        </datalist>
+      ) : null}
+    </label>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div>
-      <div className="text-xs tracking-wider text-muted-foreground">{label}</div>
-      <div className="font-display text-2xl font-semibold tabular-nums text-fg">{value}</div>
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-display text-lg font-semibold tabular-nums text-fg">{value}</span>
     </div>
   );
 }

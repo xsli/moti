@@ -29,7 +29,7 @@ function ReviewPage() {
 
   if (status !== "ready") {
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-72 rounded-xl" />
       </div>
@@ -69,11 +69,10 @@ function ReviewPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-medium tracking-wide text-primary">复习</p>
-          <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">先做一遍</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">复习</h1>
         </div>
         <p className="text-sm tabular-nums text-muted-foreground">
           {done + 1} / {total}

@@ -79,6 +79,8 @@ export interface Problem {
   reviewCount: number;
   nextReviewAt: number;
   collectionId?: string;
+  sourceBatchId?: string;
+  sourceOrder?: number;
 }
 
 export function isSubject(value: string): value is Subject {

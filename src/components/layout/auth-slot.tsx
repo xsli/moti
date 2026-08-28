@@ -9,7 +9,7 @@ export function AuthSlot() {
   const [signingOut, setSigningOut] = useState(false);
 
   if (!authEnabled) {
-    return <span className="text-xs text-muted-foreground">预览</span>;
+    return null;
   }
 
   if (isPending) {
