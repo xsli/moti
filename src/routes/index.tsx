@@ -359,6 +359,7 @@ function Home() {
                         problems.filter((p) => p.collectionId === g).map((p) => p.id),
                       ).join(","),
                       tpl: "",
+                      title: currentCol.name,
                     },
                   })
                 }

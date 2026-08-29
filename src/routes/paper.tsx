@@ -38,15 +38,16 @@ import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Subject } fr
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { ids: string; tpl: string; title?: string } => ({
     ids: typeof search.ids === "string" ? search.ids : "",
     tpl: typeof search.tpl === "string" ? search.tpl : "",
+    ...(typeof search.title === "string" && search.title.trim() ? { title: search.title } : {}),
   }),
   component: PaperPage,
 });
 
 function PaperPage() {
-  const { ids, tpl } = Route.useSearch();
+  const { ids, tpl, title: initialTitle } = Route.useSearch();
   const navigate = useNavigate();
   const problems = useProblemStore((s) => s.problems);
   const loadProblem = useProblemStore((s) => s.loadProblem);
@@ -88,13 +89,13 @@ function PaperPage() {
       return;
     }
     setRows(rowsFromIds(selectedIds));
-    setTitle(DEFAULT_EXAM_TITLE);
+    setTitle(normalizePaperTitle(initialTitle, "exam"));
     setWithAnswers(false);
     setBlankLines(DEFAULT_BLANK_LINES);
     setBlankAuto(false);
     setSheetKind("exam");
     setStep("arrange");
-  }, [idsKey, tpl, tplStamp, selectedIds]);
+  }, [idsKey, tpl, tplStamp, selectedIds, initialTitle]);
 
   if (!selectedIds.length) {
     return <PaperPicker />;

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ImagePlus, LoaderCircle, Type, X } from "lucide-react";
+import { Image, ImagePlus, LoaderCircle, Type, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConstructionLoader } from "@/components/capture/construction-loader";
@@ -108,15 +108,9 @@ function CapturePage() {
   const { g: incomingGroup } = Route.useSearch();
   const navigate = useNavigate();
   const addProblem = useProblemStore((s) => s.addProblem);
-  const problems = useProblemStore((s) => s.problems);
   const collections = useProblemStore((s) => s.collections);
   const userId = useProblemStore((s) => s.userId);
   const [collectionId, setCollectionId] = useState("");
-  const notebookTags = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of problems) for (const t of p.tags) set.add(t);
-    return [...set];
-  }, [problems]);
   const inputRef = useRef<HTMLInputElement>(null);
   const batchTagEditorRef = useRef<TagEditorHandle>(null);
   const [stage, setStage] = useState<Stage>("idle");
@@ -426,12 +420,6 @@ function CapturePage() {
     if (!drafts.length) return [];
     return drafts.map((d) => d.tags).reduce((a, b) => a.filter((t) => b.includes(t)));
   }, [drafts]);
-
-  const captureSuggestions = useMemo(() => {
-    const set = new Set(notebookTags);
-    for (const item of drafts) for (const tag of item.tags) set.add(tag);
-    return [...set];
-  }, [notebookTags, drafts]);
 
   function patchDraft(partial: Partial<DraftItem>) {
     setDrafts((prev) => prev.map((item, i) => (i === index ? { ...item, ...partial } : item)));
@@ -758,13 +746,13 @@ function CapturePage() {
                 ))}
               </div>
             <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-              <p className="text-sm font-medium">本批一起打标签</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">加在这里会进每一道；单题还可再改。</p>
+              <p className="text-sm font-medium">
+                本批标签 <span className="font-normal text-muted-foreground">会添加到每一道题</span>
+              </p>
               <div className="mt-3">
                 <TagEditor
                   ref={batchTagEditorRef}
                   tags={batchCommonTags}
-                  suggestions={captureSuggestions}
                   placeholder="例如：期末、函数"
                   onChange={applyBatchTags}
                 />
@@ -776,7 +764,6 @@ function CapturePage() {
             key={index}
             draft={draft}
             image={draft.sourceImage}
-            suggestions={captureSuggestions}
             onChange={patchDraft}
             onSave={saveCurrent}
             onSaveAll={drafts.length > 1 ? saveAll : undefined}
@@ -793,7 +780,6 @@ function CapturePage() {
 function ReviewForm({
   draft,
   image,
-  suggestions = [],
   onChange,
   onSave,
   onSaveAll,
@@ -803,7 +789,6 @@ function ReviewForm({
 }: {
   draft: ExtractedProblem;
   image?: string;
-  suggestions?: string[];
   onChange: (next: Partial<ExtractedProblem>) => void;
   onSave: (tags?: string[]) => void;
   onSaveAll?: (tags?: string[]) => void;
@@ -814,6 +799,7 @@ function ReviewForm({
   const figureCount = draft.figures.length;
   const difficultyDots = useMemo(() => [1, 2, 3, 4, 5] as const, []);
   const [needCrop, setNeedCrop] = useState(figureCount > 0);
+  const [showSourceImage, setShowSourceImage] = useState(false);
   const tagEditorRef = useRef<TagEditorHandle>(null);
   const cropBox = draft.figureBbox ?? defaultCropBox();
 
@@ -834,8 +820,7 @@ function ReviewForm({
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-5">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">识别结果，可改</p>
-        <div className="mt-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
           <Field label="标题">
             <Input value={draft.title} onChange={(e) => onChange({ title: e.target.value })} />
           </Field>
@@ -845,8 +830,35 @@ function ReviewForm({
               onChange={(e) => onChange({ stem: e.target.value })}
               className="min-h-32"
             />
-            <div className="rounded-md bg-secondary/60 px-3 py-2">
-              <MathText text={draft.stem} className="text-sm" />
+            <div className="rounded-lg border border-border border-l-4 border-l-primary bg-secondary/45 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-primary">最终显示效果</p>
+                {image ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => setShowSourceImage((value) => !value)}
+                  >
+                    <Image className="size-3.5" />
+                    {showSourceImage ? "隐藏切割原图" : "显示切割原图"}
+                  </Button>
+                ) : null}
+              </div>
+              <div className="mt-2">
+                <MathText text={draft.stem} className="text-base leading-relaxed" />
+              </div>
+              {showSourceImage && image ? (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">切割后的原图</p>
+                  <img
+                    src={image}
+                    alt="切割后的原题图"
+                    className="max-h-96 w-full rounded-md border border-border bg-white object-contain"
+                  />
+                </div>
+              ) : null}
             </div>
           </Field>
           <div className="flex flex-col gap-2">
@@ -854,7 +866,6 @@ function ReviewForm({
             <TagEditor
               ref={tagEditorRef}
               tags={draft.tags}
-              suggestions={suggestions}
               placeholder="例如：相似、二次函数"
               onChange={(tags) => onChange({ tags })}
             />
