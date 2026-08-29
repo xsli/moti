@@ -101,8 +101,8 @@ const EXAM_CSS = `
   position: absolute;
   margin-left: 8pt;
   padding: 1pt 6pt 0;
-  border: 0.65pt solid #1d4ed8;
-  color: #1d4ed8;
+  border: 0.65pt solid #0d9f78;
+  color: #0d9f78;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   font-size: 9pt;
   font-weight: 500;
@@ -189,7 +189,7 @@ const EXAM_CSS = `
 .exam-box-sizer { visibility: hidden; }
 .exam-analysis {
   margin: 6pt 0 1.15em 2em;
-  color: #1d4ed8;
+  color: #1a7d68;
   font-size: 10.5pt;
   line-height: 1.75;
 }
@@ -268,12 +268,26 @@ const EXAM_CSS = `
 }
 .hn-head {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12pt;
+  flex-direction: column;
+  gap: 8pt;
   padding-bottom: 8pt;
   border-bottom: 1.1pt solid #1a1814;
   margin-bottom: 4pt;
+}
+.hn-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12pt;
+}
+.hn-title {
+  margin: 10pt 0 8pt;
+  text-align: center;
+  font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
+  font-size: 16pt;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
 }
 .hn-brand { display: flex; align-items: center; gap: 8pt; }
 .hn-logo { display: flex; align-items: center; gap: 6pt; }
@@ -286,8 +300,8 @@ const EXAM_CSS = `
 }
 .hn-mark {
   padding: 1pt 7pt 0;
-  border: 0.7pt solid #9b2c1a;
-  color: #9b2c1a;
+  border: 0.7pt solid #0d9f78;
+  color: #0d9f78;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   font-size: 9pt;
   letter-spacing: 0.2em;
@@ -297,7 +311,7 @@ const EXAM_CSS = `
 .hn-sec {
   margin: 12pt 0 8pt;
   padding-left: 9pt;
-  border-left: 3.2pt solid #9b2c1a;
+  border-left: 3.2pt solid #0d9f78;
 }
 .hn-sec-example { border-left-color: #1a1814; }
 .hn-sec-practice { border-left-color: #1a1814; }
@@ -602,7 +616,7 @@ function ExamLogo({ inline }: { inline?: boolean }) {
       <svg viewBox="0 0 32 32" aria-hidden="true">
         <rect x="0.6" y="0.6" width="30.8" height="30.8" rx="6.4" fill="#fff" stroke="#1a1814" strokeWidth="1.2" />
         <path d="M7.5 24.5 L16 8.5 L24.5 24.5 Z" fill="none" stroke="#1a1814" strokeWidth="2.1" strokeLinejoin="round" />
-        <circle cx="16" cy="19.2" r="3.4" fill="none" stroke="#b42318" strokeWidth="1.7" />
+        <circle cx="16" cy="19.2" r="3.6" fill="#0d9f78" />
       </svg>
       <span className={inline ? "hn-logo-name" : "exam-brand-name"}>墨题</span>
     </div>
@@ -618,17 +632,24 @@ function HandoutHead({
 }) {
   return (
     <header className="hn-head">
-      <div className="hn-brand">
-        <ExamLogo inline />
-        <span className="hn-mark">学案</span>
-        {analysis ? <span className="exam-analysis-mark">解析</span> : null}
-      </div>
-      <div className="hn-meta">
-        {quote.text}
-        <span className="hn-meta-by">——{quote.by}</span>
+      <div className="hn-top">
+        <div className="hn-brand">
+          <ExamLogo inline />
+          <span className="hn-mark">学案</span>
+          {analysis ? <span className="exam-analysis-mark">解析</span> : null}
+        </div>
+        <div className="hn-meta">
+          {quote.text}
+          <span className="hn-meta-by">——{quote.by}</span>
+        </div>
       </div>
     </header>
   );
+}
+
+function HandoutTitle({ title }: { title: string }) {
+  if (!title.trim()) return null;
+  return <h1 className="hn-title">{title}</h1>;
 }
 
 function CoverHead({
@@ -806,7 +827,9 @@ export function ExamSheet({
       const bottomMm = handout ? 18 : 25.4;
       const inner = (297 - topMm - bottomMm) * pxPerMm - 8 * pxPerMm;
       const head = mount.querySelector("[data-measure='head']") as HTMLElement | null;
+      const titleNode = mount.querySelector("[data-measure='title']") as HTMLElement | null;
       const headH = head?.offsetHeight ?? 160;
+      const titleH = titleNode?.offsetHeight ?? 0;
       const itemNodes = [...mount.querySelectorAll<HTMLElement>("[data-measure='item']")];
 
       function spanHeight(from: number, to: number) {
@@ -832,7 +855,7 @@ export function ExamSheet({
       }
 
       let current: Block[] = [];
-      let used = headH;
+      let used = headH + titleH;
       for (const idxs of groups) {
         const groupBlocks = idxs.map((i) => blocks[i]).filter(Boolean) as Block[];
         const h = spanHeight(idxs[0] ?? 0, idxs[idxs.length - 1] ?? 0);
@@ -882,6 +905,11 @@ export function ExamSheet({
       <style>{`${katexCss}\n${EXAM_CSS}`}</style>
       <div className="exam-measure" ref={measureRef}>
         <div data-measure="head">{head}</div>
+        {handout ? (
+          <div data-measure="title">
+            <HandoutTitle title={title} />
+          </div>
+        ) : null}
         {blocks.map((block, i) => (
           <div key={`${block.kind}-${i}`} data-measure="item">
             <BlockView
@@ -907,7 +935,10 @@ export function ExamSheet({
             )}
             {!handout && pageIndex === 0 ? <ExamLogo /> : null}
             {pageIndex === 0 ? (
-              head
+              <>
+                {head}
+                {handout ? <HandoutTitle title={title} /> : null}
+              </>
             ) : handout ? (
               <HandoutHead
                 quote={quoteDeck[pageIndex % quoteDeck.length] ?? MATH_QUIPS[0]!}
@@ -928,7 +959,7 @@ export function ExamSheet({
             <div className="exam-page-no">
               {handout ? (
                 <>
-                  <span>墨题学案</span>
+                  <span>{title.trim() || "墨题学案"}</span>
                   <span>
                     第 {pageIndex + 1} 页　共 {pages.length} 页
                   </span>

@@ -232,7 +232,7 @@ function PaperPicker() {
     <div className="flex flex-col gap-6">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">组卷</h1>
-          <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。筛选不影响已选。</p>
+          <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。</p>
         </div>
 
       <BasketBar />
@@ -463,60 +463,62 @@ function PaperPreview({
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-            {sheetKind === "handout" ? "学案名" : "卷名"}
-            <Input value={title} onChange={(e) => onTitle(e.target.value)} />
-          </label>
-          <SheetKindToggle value={sheetKind} onChange={onSheetKind} />
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={withAnswers}
-              onChange={(e) => onAnswers(e.target.checked)}
-            />
-            解析版
-          </label>
-          <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
-            默认留白
-            <select
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-              value={blankLines}
-              disabled={withAnswers}
-              onChange={(e) => onBlankLines(coerceBlankLines(e.target.value))}
-            >
-              {BLANK_LINE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {blankLineLabel(n)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
-            <input
-              type="checkbox"
-              checked={blankAuto}
-              disabled={withAnswers}
-              onChange={(e) => onBlankAuto(e.target.checked)}
-            />
-            自动估（没答案就用上面行数）
-          </label>
-        </div>
-        <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-            存为模板
-            <Input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="周六数学卷" />
-          </label>
+        <div className="grid items-center gap-x-3 gap-y-2 sm:grid-cols-[auto_12rem_minmax(0,1fr)]">
+          <span className="text-sm text-muted-foreground">{sheetKind === "handout" ? "学案名" : "卷名"}</span>
+          <Input className="h-9" value={title} onChange={(e) => onTitle(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <SheetKindToggle value={sheetKind} onChange={onSheetKind} />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={withAnswers}
+                onChange={(e) => onAnswers(e.target.checked)}
+              />
+              解析版
+            </label>
+            <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+              默认留白
+              <select
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                value={blankLines}
+                disabled={withAnswers}
+                onChange={(e) => onBlankLines(coerceBlankLines(e.target.value))}
+              >
+                {BLANK_LINE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {blankLineLabel(n)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+              <input
+                type="checkbox"
+                checked={blankAuto}
+                disabled={withAnswers}
+                onChange={(e) => onBlankAuto(e.target.checked)}
+              />
+              自动估
+            </label>
+          </div>
+          <span className="text-sm text-muted-foreground">模板</span>
+          <Input
+            className="h-9"
+            value={tplName}
+            onChange={(e) => setTplName(e.target.value)}
+            placeholder="周六数学卷"
+          />
           <Button
             type="button"
+            size="sm"
             variant="outline"
-            className="sm:mt-5"
+            className="justify-self-start"
             onClick={() => {
               saveTemplate({ name: tplName, title, withAnswers, blankLines, blankAuto, sheetKind, rows });
               toast.success("模板已保存，组卷页可以打开");
             }}
           >
-            保存模板
+            保存
           </Button>
         </div>
       </div>

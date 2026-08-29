@@ -112,7 +112,7 @@ export function ArrangeList({
           <p className="mt-1 text-sm text-muted-foreground">
             按住左侧横条拖动排序。{handout ? "学案按要点 / 例题 / 练习分栏。" : `总分 ${total} 分。`}
           </p>
-          {onSheetKind ? <SheetKindToggle value={sheetKind} onChange={onSheetKind} /> : null}
+          {onSheetKind ? <SheetKindToggle className="mt-2" value={sheetKind} onChange={onSheetKind} /> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={onBack}>
@@ -293,9 +293,17 @@ export function ArrangeList({
   );
 }
 
-export function SheetKindToggle({ value, onChange }: { value: SheetKind; onChange: (kind: SheetKind) => void }) {
+export function SheetKindToggle({
+  value,
+  onChange,
+  className,
+}: {
+  value: SheetKind;
+  onChange: (kind: SheetKind) => void;
+  className?: string;
+}) {
   return (
-    <div className="mt-2 inline-flex rounded-lg bg-secondary p-0.5">
+    <div className={cn("inline-flex h-9 items-center rounded-lg bg-secondary p-0.5", className)}>
       {(["exam", "handout"] as const).map((kind) => (
         <button
           key={kind}
