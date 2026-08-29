@@ -2,7 +2,7 @@ import { GripVertical } from "lucide-react";
 import { type PointerEvent, useRef, useState } from "react";
 import { ProblemCard } from "@/components/notebook/problem-card";
 import { moveId } from "@/lib/problems/order";
-import type { Problem } from "@/lib/problems/types";
+import type { Mastery, Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export function SortableProblems({
@@ -11,6 +11,7 @@ export function SortableProblems({
   selecting,
   selected,
   onToggle,
+  onMasteryChange,
   onReorder,
 }: {
   problems: Problem[];
@@ -18,6 +19,7 @@ export function SortableProblems({
   selecting: boolean;
   selected: Set<string>;
   onToggle: (id: string) => void;
+  onMasteryChange?: (id: string, mastery: Mastery) => void;
   onReorder?: (ids: string[]) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -68,7 +70,7 @@ export function SortableProblems({
         <div
           key={problem.id}
           data-row={problem.id}
-          className={cn("relative", draggingId === problem.id && "opacity-60", sortable && layout === "row" && "pl-8")}
+          className={cn("relative min-w-0", draggingId === problem.id && "opacity-60", sortable && layout === "row" && "pl-8")}
         >
           {sortable && overIndex === index ? (
             <span className="absolute -top-1 left-0 right-0 z-20 h-0.5 rounded-full bg-primary" />
@@ -96,6 +98,7 @@ export function SortableProblems({
             selecting={selecting}
             selected={selected.has(problem.id)}
             onToggle={() => onToggle(problem.id)}
+            onMasteryChange={onMasteryChange ? (mastery) => onMasteryChange(problem.id, mastery) : undefined}
           />
         </div>
       ))}

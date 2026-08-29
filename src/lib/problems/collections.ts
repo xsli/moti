@@ -15,6 +15,7 @@ export interface Collection {
   name: string;
   kind: CollectionKind;
   groupName: string;
+  sortOrder: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -46,9 +47,23 @@ export function coerceCollection(raw: unknown): Collection | null {
     name,
     kind,
     groupName: coerceGroupName(item.groupName ?? item.bucket),
+    sortOrder: Math.max(0, Math.round(Number(item.sortOrder) || 0)),
     createdAt: Number(item.createdAt) || Date.now(),
     updatedAt: Number(item.updatedAt) || Date.now(),
   };
+}
+
+export function sortCollectionsByOrder<T extends Pick<Collection, "id" | "sortOrder">>(
+  collections: T[],
+  fallbackTime: (item: T) => number,
+): T[] {
+  return [...collections].sort((a, b) => {
+    if (a.sortOrder > 0 && b.sortOrder > 0 && a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    if (a.sortOrder > 0 && b.sortOrder === 0) return 1;
+    if (a.sortOrder === 0 && b.sortOrder > 0) return -1;
+    const time = fallbackTime(b) - fallbackTime(a);
+    return time || a.id.localeCompare(b.id);
+  });
 }
 
 export function coerceCollectionList(raw: unknown): Collection[] {

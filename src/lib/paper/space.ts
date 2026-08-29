@@ -1,9 +1,12 @@
 import type { Problem } from "@/lib/problems/types";
 
-export const BLANK_LINE_OPTIONS = [2, 3, 4, 5, 6, 8] as const;
+export const BLANK_LINE_OPTIONS = [
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+] as const;
 export type BlankLines = (typeof BLANK_LINE_OPTIONS)[number];
 
 export const DEFAULT_BLANK_LINES: BlankLines = 5;
+export const BLANK_LINE_HEIGHT_MM = 7;
 
 export function coerceBlankLines(value: unknown): BlankLines {
   const n = Math.round(Number(value));
@@ -49,7 +52,7 @@ export function answerHeightMm(problem: Problem): number {
 
 export function blankHeightMm(problem: Problem, lines: BlankLines, auto = false): number {
   if (auto && hasWrittenAnswer(problem)) return answerHeightMm(problem);
-  return Math.round(lines * 7);
+  return Math.round(lines * BLANK_LINE_HEIGHT_MM);
 }
 
 export function blankHeightCm(problem: Problem, lines: BlankLines, auto = false): string {

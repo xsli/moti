@@ -54,14 +54,14 @@ function ReviewPage() {
           {done > 0 ? "这轮复习完成了" : "这轮没有待复习的题"}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
-          {done > 0 ? `共过了 ${done} 道。` : "去拍一道新错题，或打开本子随便翻一翻。"}
+          {done > 0 ? `共过了 ${done} 道。` : "去拍一道新题，或打开本子随便翻一翻。"}
         </p>
         <div className="mt-6 flex justify-center gap-2">
           <Button asChild variant="outline">
             <Link to="/">回到本子</Link>
           </Button>
           <Button asChild>
-            <Link to="/capture">拍下错题</Link>
+            <Link to="/capture">拍题</Link>
           </Button>
         </div>
       </div>

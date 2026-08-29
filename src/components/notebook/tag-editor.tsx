@@ -1,38 +1,33 @@
-import { useRef, useState } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { appendTag, MAX_TAG_LENGTH, MAX_TAGS } from "@/lib/problems/tags";
 import { cn } from "@/lib/utils";
 
-const MAX_TAGS = 8;
-const MAX_LEN = 16;
-
-export function normalizeTag(raw: string): string {
-  return raw.trim().replace(/\s+/g, " ").slice(0, MAX_LEN);
+export interface TagEditorHandle {
+  commitDraft: () => string[];
 }
 
-export function TagEditor({
-  tags,
-  onChange,
-  suggestions = [],
-  placeholder = "添加标签",
-}: {
+export const TagEditor = forwardRef<TagEditorHandle, {
   tags: string[];
   onChange: (tags: string[]) => void;
   suggestions?: string[];
   placeholder?: string;
-}) {
+}>(function TagEditor({ tags, onChange, suggestions = [], placeholder = "添加标签" }, ref) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function add(raw: string) {
-    const tag = normalizeTag(raw);
-    if (!tag || tags.includes(tag) || tags.length >= MAX_TAGS) {
+  const add = useCallback(
+    (raw: string, refocus = true) => {
+      const next = appendTag(tags, raw);
+      if (next !== tags) onChange(next);
       setDraft("");
-      return;
-    }
-    onChange([...tags, tag]);
-    setDraft("");
-    inputRef.current?.focus();
-  }
+      if (refocus) inputRef.current?.focus();
+      return next;
+    },
+    [onChange, tags],
+  );
+
+  useImperativeHandle(ref, () => ({ commitDraft: () => add(draft, false) }), [add, draft]);
 
   const hint = suggestions.filter((s) => !tags.includes(s) && (!draft || s.includes(draft.trim()))).slice(0, 8);
 
@@ -65,7 +60,10 @@ export function TagEditor({
           <input
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value.slice(0, MAX_LEN))}
+            onChange={(e) => setDraft(e.target.value.slice(0, MAX_TAG_LENGTH))}
+            onBlur={() => {
+              if (draft.trim()) add(draft, false);
+            }}
             placeholder={tags.length ? "" : placeholder}
             className="h-7 min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
             onKeyDown={(e) => {
@@ -99,4 +97,4 @@ export function TagEditor({
       ) : null}
     </div>
   );
-}
+});

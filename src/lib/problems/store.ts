@@ -32,6 +32,7 @@ interface ProblemState {
   updateCollection: (id: string, patch: Partial<Pick<Collection, "name" | "kind" | "groupName">>) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
   renameFolder: (from: string, to: string) => Promise<number>;
+  reorderCollections: (ids: string[]) => Promise<void>;
   reorderProblems: (ids: string[]) => Promise<void>;
   importNotebook: (text: string) => Promise<{ problems: number; collections: number }>;
   exportNotebook: () => Promise<string>;
@@ -273,6 +274,7 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       name: input.name.trim().slice(0, 40) || "未命名",
       kind: input.kind ?? "custom",
       groupName: (input.groupName ?? "").trim().slice(0, 40),
+      sortOrder: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -325,6 +327,33 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       toast.error("大组改名先记在这台设备上。");
     }
     return changed.length;
+  },
+  reorderCollections: async (ids) => {
+    if (ids.length < 2) return;
+    const previous = get().collections;
+    const rank = new Map(ids.map((id, index) => [id, index + 1]));
+    const now = Date.now();
+    const next = previous.map((item) => {
+      const sortOrder = rank.get(item.id);
+      return sortOrder == null ? item : { ...item, sortOrder, updatedAt: now };
+    });
+    const changed = ids
+      .map((id) => next.find((item) => item.id === id))
+      .filter(Boolean) as Collection[];
+    set({ collections: next });
+    persist(get().userId, get().problems, next);
+    try {
+      const { pushCollectionsFn } = await import("./api");
+      await pushCollectionsFn({ data: { collections: changed } });
+      set({ syncedAt: Date.now() });
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        set({ collections: previous });
+        persist(get().userId, get().problems, previous);
+        throw error;
+      }
+      toast.error("分组顺序已记下，云端稍后再同步。");
+    }
   },
   reorderProblems: async (ids) => {
     if (ids.length < 2) return;

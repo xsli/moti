@@ -1,7 +1,12 @@
 import katexCss from "katex/dist/katex.min.css?inline";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { chineseOrdinal, type ExamItem, type HeadingRole, type SheetKind } from "@/lib/paper/layout";
-import { blankHeightMm, hasWrittenAnswer, type BlankLines } from "@/lib/paper/space";
+import {
+  BLANK_LINE_HEIGHT_MM,
+  blankHeightMm,
+  hasWrittenAnswer,
+  type BlankLines,
+} from "@/lib/paper/space";
 import { MathText } from "@/lib/problems/math-text";
 import type { Problem } from "@/lib/problems/types";
 
@@ -338,10 +343,10 @@ const EXAM_CSS = `
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   margin-right: 0.4em;
 }
-.hn-lines { margin: 6pt 0 2pt 2em; }
+.hn-lines { margin: 6pt 0 1.15em 2em; }
 .hn-lines i {
   display: block;
-  height: 13pt;
+  height: ${BLANK_LINE_HEIGHT_MM}mm;
   border-bottom: 0.55pt solid #c9c2b4;
 }
 .hn-point {
@@ -360,7 +365,7 @@ type Block =
 const SEAL_QUIPS = [
   "错过一次就够了，下次换我赢",
   "这不是考试，是和昨天的自己复盘",
-  "错题会说话，认真听它把坑讲完",
+  "题目会说话，认真听它把思路讲完",
   "会的先拿下，不会的慢慢磨",
   "复习卷，深呼吸，写完去喝水",
   "别在同一道题上栽第二次",
@@ -406,9 +411,9 @@ const BIND_QUIPS = [
 
 const MATH_QUIPS: { text: string; by: string }[] = [
   { text: "我算故我在。", by: "笛卡尔大概是这个意思" },
-  { text: "没有王者之路通向这页错题。", by: "欧几里得看了想再编一本" },
+  { text: "没有王者之路通向这页练习。", by: "欧几里得看了想再编一本" },
   { text: "给我一支笔，我能撬动这道题。", by: "阿基米德今天不洗澡" },
-  { text: "站在错题的肩膀上。", by: "牛顿说旧坑也是巨人" },
+  { text: "站在题目的肩膀上。", by: "牛顿说旧坑也是巨人" },
   { text: "我们必须会，我们终将会。", by: "希尔伯特对订正的期望" },
   { text: "空白太小写不下？这页够大。", by: "费马终于肯写步骤" },
   { text: "万物皆可再订正一遍。", by: "毕达哥拉斯数完还要验" },
@@ -419,7 +424,7 @@ const MATH_QUIPS: { text: string; by: string }[] = [
   { text: "公式记得住，负号别抄反。", by: "欧拉看抄写错误会晕" },
   { text: "不理解也没关系，再写一遍就熟。", by: "冯·诺依曼式习惯" },
   { text: "错因写下来，才算度量过。", by: "开尔文改行督学" },
-  { text: "世上不该有两道一模一样的错。", by: "莱布尼茨看见重复错题" },
+  { text: "世上不该有两道一模一样的错。", by: "莱布尼茨看见重复题目" },
   { text: "灵感可以来自神，订正必须来自你。", by: "拉马努金也要步骤" },
   { text: "你的笔在思考吗？", by: "图灵停机前来问一句" },
   { text: "会做不等于会，熟了才算会。", by: "高斯不想再改同一题" },
@@ -428,7 +433,7 @@ const MATH_QUIPS: { text: string; by: string }[] = [
   { text: "对和错别叠在同一行。", by: "薛定谔的猫也要选边" },
   { text: "粗心测不准，步骤写清楚。", by: "海森堡改行监考" },
   { text: "符号守恒，步骤才对称。", by: "诺特定理的订正版" },
-  { text: "这本错题永远可以再加一页。", by: "哥德尔式不完备" },
+  { text: "这本练习永远可以再加一页。", by: "哥德尔式不完备" },
   { text: "多算一位，少错一次。", by: "祖冲之还想更准" },
   { text: "步骤才是这题的语言。", by: "伽利略不听空话" },
   { text: "人是会订正的芦苇。", by: "帕斯卡给笔的定义" },
@@ -961,12 +966,12 @@ export function ExamSheet({
                 <>
                   <span>{title.trim() || "墨题学案"}</span>
                   <span>
-                    第 {pageIndex + 1} 页　共 {pages.length} 页
+                    第 {pageIndex + 1} 页 · 共 {pages.length} 页
                   </span>
                 </>
               ) : (
                 <>
-                  {title}　第 {pageIndex + 1} 页　共 {pages.length} 页
+                  {title} · 第 {pageIndex + 1} 页 · 共 {pages.length} 页
                 </>
               )}
             </div>

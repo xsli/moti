@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { authMiddleware } from "@/lib/auth/middleware";
+import { localUserMiddleware } from "@/lib/local-user";
 import { getSql } from "@/lib/db";
 import { coerceCollection, coerceCollectionList, isCollectionKind, type Collection } from "./collections";
 import { coerceProblem, coerceProblemList } from "./coerce";
@@ -54,6 +54,7 @@ async function ensureCollectionsSchema(): Promise<void> {
           id text not null,
           name text not null,
           kind text not null default 'custom',
+          sort_order bigint not null default 0,
           created_at bigint not null,
           updated_at bigint not null,
           primary key (user_id, id)
@@ -82,6 +83,7 @@ async function ensureCollectionsSchema(): Promise<void> {
         "alter table problems add column if not exists source_batch_id text",
         "alter table problems add column if not exists source_order bigint",
         "alter table collections add column if not exists bucket text",
+        "alter table collections add column if not exists sort_order bigint not null default 0",
       ]) {
         try {
           await sql.query(stmt);
@@ -364,10 +366,11 @@ async function listCollections(userId: string): Promise<Collection[]> {
       name: string;
       kind: string;
       bucket: string | null;
+      sort_order: number | string;
       created_at: number | string;
       updated_at: number | string;
     }>`
-      select id, name, kind, bucket, created_at, updated_at
+      select id, name, kind, bucket, sort_order, created_at, updated_at
       from collections
       where user_id = ${userId}
       order by updated_at desc
@@ -379,6 +382,7 @@ async function listCollections(userId: string): Promise<Collection[]> {
           name: row.name,
           kind: row.kind,
           bucket: row.bucket,
+          sortOrder: asNumber(row.sort_order),
           createdAt: asNumber(row.created_at),
           updatedAt: asNumber(row.updated_at),
         }),
@@ -389,10 +393,11 @@ async function listCollections(userId: string): Promise<Collection[]> {
       id: string;
       name: string;
       kind: string;
+      sort_order: number | string;
       created_at: number | string;
       updated_at: number | string;
     }>`
-      select id, name, kind, created_at, updated_at
+      select id, name, kind, sort_order, created_at, updated_at
       from collections
       where user_id = ${userId}
       order by updated_at desc
@@ -403,6 +408,7 @@ async function listCollections(userId: string): Promise<Collection[]> {
           id: row.id,
           name: row.name,
           kind: row.kind,
+          sortOrder: asNumber(row.sort_order),
           createdAt: asNumber(row.created_at),
           updatedAt: asNumber(row.updated_at),
         }),
@@ -419,28 +425,30 @@ async function upsertCollectionRow(userId: string, input: Collection): Promise<v
   const groupName = input.groupName.trim().slice(0, 40);
   try {
     await sql`
-      insert into collections (user_id, id, name, kind, bucket, created_at, updated_at)
-      values (${userId}, ${input.id}, ${name}, ${kind}, ${groupName}, ${input.createdAt}, ${input.updatedAt})
+      insert into collections (user_id, id, name, kind, bucket, sort_order, created_at, updated_at)
+      values (${userId}, ${input.id}, ${name}, ${kind}, ${groupName}, ${input.sortOrder}, ${input.createdAt}, ${input.updatedAt})
       on conflict (user_id, id) do update set
         name = excluded.name,
         kind = excluded.kind,
         bucket = excluded.bucket,
+        sort_order = excluded.sort_order,
         updated_at = excluded.updated_at
     `;
   } catch {
     await sql`
-      insert into collections (user_id, id, name, kind, created_at, updated_at)
-      values (${userId}, ${input.id}, ${name}, ${kind}, ${input.createdAt}, ${input.updatedAt})
+      insert into collections (user_id, id, name, kind, sort_order, created_at, updated_at)
+      values (${userId}, ${input.id}, ${name}, ${kind}, ${input.sortOrder}, ${input.createdAt}, ${input.updatedAt})
       on conflict (user_id, id) do update set
         name = excluded.name,
         kind = excluded.kind,
+        sort_order = excluded.sort_order,
         updated_at = excluded.updated_at
     `;
   }
 }
 
 export const getNotebook = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context }) => {
     const [problems, collections, initialized] = await Promise.all([
       listForUser(context.userId),
@@ -458,7 +466,7 @@ export const bootstrapNotebook = createServerFn({ method: "POST" })
       collections: coerceCollectionList(obj.collections),
     };
   })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     if (await isInitialized(context.userId)) {
       return { problems: await listForUser(context.userId), collections: await listCollections(context.userId) };
@@ -484,7 +492,7 @@ export const upsertProblem = createServerFn({ method: "POST" })
     if (!problem) throw new Error("题目格式不对");
     return problem;
   })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     await upsertOne(context.userId, data);
     await markInitialized(context.userId);
@@ -496,7 +504,7 @@ export const pushProblems = createServerFn({ method: "POST" })
     const obj = (input ?? {}) as { problems?: unknown };
     return { problems: coerceProblemList(obj.problems) };
   })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     for (const problem of data.problems) {
       await upsertOne(context.userId, problem);
@@ -507,7 +515,7 @@ export const pushProblems = createServerFn({ method: "POST" })
 
 export const deleteProblemFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await sql`
@@ -519,7 +527,7 @@ export const deleteProblemFn = createServerFn({ method: "POST" })
 
 export const getProblemFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     await ensureCollectionsSchema();
     const sql = await getSql();
@@ -541,7 +549,7 @@ export const upsertCollectionFn = createServerFn({ method: "POST" })
     if (!collection) throw new Error("分组格式不对");
     return collection;
   })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     await upsertCollectionRow(context.userId, data);
     await markInitialized(context.userId);
@@ -553,7 +561,7 @@ export const pushCollectionsFn = createServerFn({ method: "POST" })
     const obj = (input ?? {}) as { collections?: unknown };
     return { collections: coerceCollectionList(obj.collections) };
   })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     for (const item of data.collections) {
       await upsertCollectionRow(context.userId, item);
@@ -563,7 +571,7 @@ export const pushCollectionsFn = createServerFn({ method: "POST" })
 
 export const deleteCollectionFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     await ensureCollectionsSchema();
     const sql = await getSql();

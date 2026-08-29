@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Camera, Download, FolderOpen, LayoutGrid, List, Pencil, Plus, Search, Upload } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, Download, FolderOpen, GripVertical, LayoutGrid, List, Pencil, Plus, Search, Upload } from "lucide-react";
+import { type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Logo } from "@/components/brand/logo";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { DateMenu, FilterMenu } from "@/components/notebook/filter-menu";
 import { SortableProblems } from "@/components/notebook/sortable-problems";
-import { TagEditor } from "@/components/notebook/tag-editor";
+import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
+import { TagFilter } from "@/components/notebook/tag-filter";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,13 +24,16 @@ import {
   COLLECTION_KINDS,
   UNGROUPED_FOLDER,
   defaultCollectionName,
+  sortCollectionsByOrder,
+  type Collection,
   type CollectionKind,
 } from "@/lib/problems/collections";
-import { idsInSourceOrder, sortBySourceOrder, spliceVisibleOrder } from "@/lib/problems/order";
+import { idsInSourceOrder, moveId, sortBySourceOrder, spliceVisibleOrder } from "@/lib/problems/order";
+import { applyTagChanges, matchesAllTags } from "@/lib/problems/tags";
 import { formatLoggedDate, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
-import { SUBJECT_LABEL, SUBJECTS, type Problem, type Subject } from "@/lib/problems/types";
+import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -42,6 +45,7 @@ export const Route = createFileRoute("/")({
 });
 
 type Filter = "all" | "due" | Subject;
+type MasteryFilter = "all" | Mastery;
 type BrowseLayout = "card" | "row";
 
 const KIND_ORDER: CollectionKind[] = ["exam", "unit", "lesson", "custom"];
@@ -61,6 +65,7 @@ function Home() {
   const updateCollection = useProblemStore((s) => s.updateCollection);
   const renameFolder = useProblemStore((s) => s.renameFolder);
   const reorderProblems = useProblemStore((s) => s.reorderProblems);
+  const reorderCollections = useProblemStore((s) => s.reorderCollections);
   const status = useProblemStore((s) => s.status);
   const error = useProblemStore((s) => s.error);
   const userId = useProblemStore((s) => s.userId);
@@ -74,6 +79,8 @@ function Home() {
   const [filter, setFilter] = useState<Filter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [dateDay, setDateDay] = useState("");
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [masteryFilter, setMasteryFilter] = useState<MasteryFilter>("all");
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -88,10 +95,16 @@ function Home() {
   const [packing, setPacking] = useState(false);
   const [layout, setLayout] = useState<BrowseLayout>("card");
   const importRef = useRef<HTMLInputElement>(null);
+  const batchTagEditorRef = useRef<TagEditorHandle>(null);
 
   useEffect(() => {
     setLayout(readLayout());
   }, []);
+
+  useEffect(() => {
+    setTagFilter([]);
+    setMasteryFilter("all");
+  }, [g]);
 
   const dueCount = useMemo(() => selectDueProblems(problems).length, [problems]);
   const masteredCount = useMemo(
@@ -109,6 +122,8 @@ function Home() {
       } else if (filter !== "all" && p.subject !== filter) {
         return false;
       }
+      if (!matchesAllTags(p.tags, tagFilter)) return false;
+      if (masteryFilter !== "all" && p.mastery !== masteryFilter) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
       if (!q) return true;
       const hay = `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase();
@@ -116,7 +131,7 @@ function Home() {
     });
     if (g && g !== "all") return sortBySourceOrder(list);
     return list;
-  }, [problems, filter, query, dateFilter, dateDay, g]);
+  }, [problems, filter, tagFilter, masteryFilter, query, dateFilter, dateDay, g]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -128,6 +143,10 @@ function Home() {
     { id: "all", label: "全部" },
     { id: "due", label: `待复习 ${dueCount}` },
     ...SUBJECTS.map((s) => ({ id: s as Filter, label: SUBJECT_LABEL[s] })),
+  ];
+  const masteryOptions: { id: MasteryFilter; label: string }[] = [
+    { id: "all", label: "全部状态" },
+    ...(["new", "reviewing", "mastered"] as Mastery[]).map((id) => ({ id, label: MASTERY_LABEL[id] })),
   ];
 
   const selectedCount = selected.size;
@@ -147,10 +166,10 @@ function Home() {
     setSelected(new Set());
   }
 
-  async function applyTags() {
+  async function applyTags(nextTags = batchTags) {
     if (!selectedCount) return;
-    const removed = commonTags.filter((t) => !batchTags.includes(t));
-    const added = batchTags.filter((t) => !commonTags.includes(t));
+    const removed = commonTags.filter((t) => !nextTags.includes(t));
+    const added = nextTags.filter((t) => !commonTags.includes(t));
     if (!removed.length && !added.length) {
       setTagOpen(false);
       return;
@@ -159,10 +178,7 @@ function Home() {
     try {
       for (const problem of problems) {
         if (!selected.has(problem.id)) continue;
-        const tags = [
-          ...problem.tags.filter((t) => !removed.includes(t)),
-          ...added.filter((t) => !problem.tags.includes(t)),
-        ].slice(0, 8);
+        const tags = applyTagChanges(problem.tags, added, removed);
         await updateProblem(problem.id, { tags });
       }
       toast.success("标签已更新");
@@ -242,45 +258,47 @@ function Home() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <Logo />
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">概览</h1>
+          <div className="flex items-center">
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                void onImportFile(file);
+              }}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => importRef.current?.click()}
+              disabled={packing}
+            >
+              <Upload className="size-3.5" />
+              导入
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => void downloadBackup()}
+              disabled={packing}
+            >
+              <Download className="size-3.5" />
+              {packing ? "打包中" : "导出"}
+            </Button>
+          </div>
+        </div>
         <div className="flex flex-wrap items-baseline gap-4">
           <Stat label="收录" value={problems.length} />
           <Stat label="待复习" value={dueCount} />
           <Stat label="已掌握" value={masteredCount} />
-        </div>
-        <div className="ml-auto flex items-center">
-          <input
-            ref={importRef}
-            type="file"
-            accept="application/json,.json"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              void onImportFile(file);
-            }}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 text-xs text-muted-foreground"
-            onClick={() => importRef.current?.click()}
-            disabled={packing}
-          >
-            <Upload className="size-3.5" />
-            导入
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 text-xs text-muted-foreground"
-            onClick={() => void downloadBackup()}
-            disabled={packing}
-          >
-            <Download className="size-3.5" />
-            {packing ? "打包中" : "导出"}
-          </Button>
         </div>
       </section>
 
@@ -296,6 +314,7 @@ function Home() {
             navigate({ to: "/", search: { g: id } });
           }}
           onDelete={(id) => void deleteCollection(id)}
+          onReorder={(ids) => void reorderCollections(ids)}
           onRenameFolder={(from, to) => {
             void renameFolder(from, to).then((n) => {
               toast.success(`已把 ${n} 个小组改到「${to || "未分大组"}」`);
@@ -379,7 +398,7 @@ function Home() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索题干、标签…"
               className="pl-9"
-              aria-label="搜索错题"
+              aria-label="搜索题目"
             />
           </div>
           <Button
@@ -503,6 +522,14 @@ function Home() {
             options={chips}
             onChange={setFilter}
           />
+          <TagFilter tags={allTags} value={tagFilter} onChange={setTagFilter} />
+          <FilterMenu
+            idleLabel="掌握状态"
+            emptyValue="all"
+            value={masteryFilter}
+            options={masteryOptions}
+            onChange={setMasteryFilter}
+          />
           <DateMenu
             value={dateFilter}
             day={dateDay}
@@ -533,7 +560,7 @@ function Home() {
           <p className="font-display text-xl font-semibold">还没有这类题目</p>
           <Button asChild className="mt-6">
             <Link to="/capture" search={currentCol ? { g: currentCol.id } : {}}>
-              拍下错题
+              拍题
             </Link>
           </Button>
         </div>
@@ -546,6 +573,7 @@ function Home() {
           selecting={selecting}
           selected={selected}
           onToggle={toggle}
+          onMasteryChange={(id, mastery) => void updateProblem(id, { mastery })}
           onReorder={
             currentCol
               ? (visibleIds) => {
@@ -573,12 +601,16 @@ function Home() {
               {selectedCount} 道题共有的标签。点一下去掉，输入新的会加到每一道上。
             </DialogDescription>
           </DialogHeader>
-          <TagEditor tags={batchTags} onChange={setBatchTags} suggestions={allTags} />
+          <TagEditor ref={batchTagEditorRef} tags={batchTags} onChange={setBatchTags} suggestions={allTags} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setTagOpen(false)}>
               取消
             </Button>
-            <Button onClick={() => void applyTags()} disabled={busy}>
+            <Button
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void applyTags(batchTagEditorRef.current?.commitDraft() ?? batchTags)}
+              disabled={busy}
+            >
               完成
             </Button>
           </DialogFooter>
@@ -669,6 +701,7 @@ function ProblemSections({
   selecting,
   selected,
   onToggle,
+  onMasteryChange,
   onReorder,
 }: {
   problems: Problem[];
@@ -678,6 +711,7 @@ function ProblemSections({
   selecting: boolean;
   selected: Set<string>;
   onToggle: (id: string) => void;
+  onMasteryChange: (id: string, mastery: Mastery) => void;
   onReorder?: (ids: string[]) => void;
 }) {
   const sections = useMemo(() => {
@@ -703,6 +737,7 @@ function ProblemSections({
         selecting={selecting}
         selected={selected}
         onToggle={onToggle}
+        onMasteryChange={onMasteryChange}
         onReorder={onReorder}
       />
     );
@@ -722,6 +757,7 @@ function ProblemSections({
             selecting={selecting}
             selected={selected}
             onToggle={onToggle}
+            onMasteryChange={onMasteryChange}
           />
         </section>
       ))}
@@ -735,13 +771,15 @@ function GroupHome({
   dueCount,
   onCreate,
   onDelete,
+  onReorder,
   onRenameFolder,
 }: {
   problems: Problem[];
-  collections: { id: string; name: string; kind: CollectionKind; groupName: string }[];
+  collections: Collection[];
   dueCount: number;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  onReorder: (ids: string[]) => void;
   onRenameFolder: (from: string, to: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -776,9 +814,10 @@ function GroupHome({
     folder,
     kinds: KIND_ORDER.map((kind) => ({
       kind,
-      items: filtered
-        .filter((item) => (item.groupName.trim() || "") === folder && item.kind === kind)
-        .sort((a, b) => (latest(b.id)?.createdAt ?? 0) - (latest(a.id)?.createdAt ?? 0)),
+      items: sortCollectionsByOrder(
+        filtered.filter((item) => (item.groupName.trim() || "") === folder && item.kind === kind),
+        (item) => latest(item.id)?.createdAt ?? 0,
+      ),
     })).filter((cluster) => cluster.items.length),
   })).filter((group) => group.kinds.length);
 
@@ -858,33 +897,14 @@ function GroupHome({
           <h3 className="text-xs font-medium tracking-wider text-muted-foreground">
             {COLLECTION_KIND_LABEL[cluster.kind]}
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {cluster.items.map((item) => {
-              const count = problems.filter((p) => p.collectionId === item.id).length;
-              const recent = latest(item.id);
-              return (
-                <div key={item.id} className="relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-                  <Link to="/" search={{ g: item.id }} className="block pr-8">
-                    <p className="mt-0 font-display text-lg font-semibold">{item.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {count} 道 · 待复习 {dueOf(new Set([item.id]))}
-                      {recent ? ` · ${formatLoggedDate(recent.createdAt)}` : ""}
-                    </p>
-                    {recent ? <p className="mt-2 truncate text-sm text-fg/80">{recent.title}</p> : (
-                      <p className="mt-2 text-sm text-muted-foreground">还没有题目</p>
-                    )}
-                  </Link>
-                  <button
-                    type="button"
-                    className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
-                    onClick={() => onDelete(item.id)}
-                  >
-                    删除
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <CollectionGrid
+            items={cluster.items}
+            problems={problems}
+            latest={latest}
+            dueOf={(id) => dueOf(new Set([id]))}
+            onDelete={onDelete}
+            onReorder={q ? undefined : onReorder}
+          />
         </section>
           ))}
         </section>
@@ -903,6 +923,112 @@ function GroupHome({
           </Button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CollectionGrid({
+  items,
+  problems,
+  latest,
+  dueOf,
+  onDelete,
+  onReorder,
+}: {
+  items: Collection[];
+  problems: Problem[];
+  latest: (id: string) => Problem | undefined;
+  dueOf: (id: string) => number;
+  onDelete: (id: string) => void;
+  onReorder?: (ids: string[]) => void;
+}) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const sortable = Boolean(onReorder) && items.length > 1;
+
+  function dropIndex(clientX: number, clientY: number) {
+    const nodes = [...(gridRef.current?.querySelectorAll("[data-collection-row]") ?? [])];
+    for (let index = 0; index < nodes.length; index += 1) {
+      const box = nodes[index].getBoundingClientRect();
+      if (clientY < box.top || (clientY <= box.bottom && clientX < box.left + box.width / 2)) return index;
+    }
+    return nodes.length;
+  }
+
+  function onGripPointerDown(event: PointerEvent<HTMLButtonElement>, id: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingId(id);
+    setOverIndex(items.findIndex((item) => item.id === id));
+  }
+
+  function onGripPointerMove(event: PointerEvent<HTMLButtonElement>) {
+    if (!draggingId) return;
+    setOverIndex(dropIndex(event.clientX, event.clientY));
+  }
+
+  function onGripPointerUp() {
+    if (draggingId && overIndex != null && onReorder) {
+      const from = items.findIndex((item) => item.id === draggingId);
+      onReorder(moveId(items.map((item) => item.id), from, overIndex));
+    }
+    setDraggingId(null);
+    setOverIndex(null);
+  }
+
+  return (
+    <div ref={gridRef} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((item, index) => {
+        const count = problems.filter((problem) => problem.collectionId === item.id).length;
+        const recent = latest(item.id);
+        return (
+          <div
+            key={item.id}
+            data-collection-row={item.id}
+            className={cn(
+              "relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-[opacity,box-shadow]",
+              draggingId === item.id && "opacity-60",
+              draggingId && overIndex === index && draggingId !== item.id && "ring-2 ring-primary",
+            )}
+          >
+            <Link to="/" search={{ g: item.id }} className="block">
+              <p className={cn("mt-0 font-display text-lg font-semibold", sortable && "pl-7 pr-8")}>{item.name}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {count} 道 · 待复习 {dueOf(item.id)}
+                {recent ? ` · ${formatLoggedDate(recent.createdAt)}` : ""}
+              </p>
+              {recent ? (
+                <p className="mt-2 truncate text-sm text-fg/80">{recent.title}</p>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">还没有题目</p>
+              )}
+            </Link>
+            {sortable ? (
+              <button
+                type="button"
+                aria-label={`拖动${item.name}排序`}
+                className="absolute left-2 top-2 grid size-8 touch-none place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-fg active:cursor-grabbing"
+                onPointerDown={(event) => onGripPointerDown(event, item.id)}
+                onPointerMove={onGripPointerMove}
+                onPointerUp={onGripPointerUp}
+                onPointerCancel={onGripPointerUp}
+                onClick={(event) => event.preventDefault()}
+              >
+                <GripVertical className="size-4" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete(item.id)}
+            >
+              删除
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1006,7 +1132,6 @@ function CollectionIdentity({
           label="小组"
           value={name}
           placeholder="例如 2025dly"
-          display
           required
           onCommit={(next) => onPatch({ name: next })}
         />
@@ -1040,7 +1165,6 @@ function RenameField({
   value,
   placeholder,
   suggestions = [],
-  display,
   required,
   onCommit,
 }: {
@@ -1048,7 +1172,6 @@ function RenameField({
   value: string;
   placeholder: string;
   suggestions?: string[];
-  display?: boolean;
   required?: boolean;
   onCommit: (value: string) => void;
 }) {
@@ -1085,9 +1208,8 @@ function RenameField({
         }}
         placeholder={placeholder}
         className={cn(
-          "h-10 min-w-0 rounded-lg bg-secondary/80 px-3 text-fg outline-none ring-0 transition-shadow",
+          "h-10 min-w-0 rounded-lg bg-secondary/80 px-3 text-sm text-fg outline-none ring-0 transition-shadow",
           "placeholder:text-muted-foreground/70 focus:bg-bg focus:shadow-[var(--shadow-border)]",
-          display ? "font-display text-lg font-semibold" : "text-sm",
         )}
       />
       {names.length ? (

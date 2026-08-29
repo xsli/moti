@@ -1,9 +1,8 @@
-import { authMiddleware } from "@/lib/auth/middleware";
 import { createServerFn } from "@tanstack/react-start";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import https from "node:https";
 import { z } from "zod";
+import { runCodexJson } from "@/lib/ai/codex";
 import { coerceSubject, isErrorReason, type ErrorReason, type Subject } from "@/lib/problems/types";
 import { normalizeBBox, type ImageBBox } from "@/lib/image/bbox";
 
@@ -49,51 +48,86 @@ export const EXTRACT_TIMEOUT_MS = 480_000;
 export const MAX_CAPTURE_IMAGES = 16;
 export const MAX_EXTRACT_PROBLEMS = 40;
 
-function grokChat(apiKey: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; text: string }> {
-  const payload = Buffer.from(JSON.stringify(body));
-  console.info("[extract] grokChat start bytes", payload.length);
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: "api.x.ai",
-        path: "/v1/chat/completions",
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Length": payload.length,
+const BBOX_SCHEMA = {
+  type: "object",
+  properties: {
+    x: { type: "number" },
+    y: { type: "number" },
+    w: { type: "number" },
+    h: { type: "number" },
+  },
+  required: ["x", "y", "w", "h"],
+  additionalProperties: false,
+} as const;
+
+const EXTRACT_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    problems: {
+      type: "array",
+      maxItems: MAX_EXTRACT_PROBLEMS,
+      items: {
+        type: "object",
+        properties: {
+          sourceIndex: { type: "integer", minimum: 0 },
+          title: { type: "string" },
+          stem: { type: "string" },
+          subject: {
+            type: "string",
+            enum: ["algebra", "geometry", "function", "trig", "calculus", "probability", "other"],
+          },
+          tags: { type: "array", items: { type: "string" }, maxItems: 8 },
+          difficulty: { type: "integer", minimum: 1, maximum: 5 },
+          bbox: { anyOf: [BBOX_SCHEMA, { type: "null" }] },
+          hasFigure: { type: "boolean" },
+          figureBbox: { anyOf: [BBOX_SCHEMA, { type: "null" }] },
+          figureTitle: { type: "string" },
+          figureCaption: { type: "string" },
+          correctAnswer: { type: "string" },
+          analysis: { type: "string" },
         },
+        required: [
+          "sourceIndex",
+          "title",
+          "stem",
+          "subject",
+          "tags",
+          "difficulty",
+          "bbox",
+          "hasFigure",
+          "figureBbox",
+          "figureTitle",
+          "figureCaption",
+          "correctAnswer",
+          "analysis",
+        ],
+        additionalProperties: false,
       },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(chunk as Buffer));
-        res.on("end", () => {
-          const text = Buffer.concat(chunks).toString("utf8");
-          console.info("[extract] grokChat status", res.statusCode, "reply", text.length);
-          resolve({ status: res.statusCode ?? 0, text });
-        });
-      },
-    );
-    req.setTimeout(EXTRACT_TIMEOUT_MS, () => {
-      req.destroy(new Error("timeout"));
-    });
-    const onAbort = () => {
-      req.destroy(Object.assign(new Error("aborted"), { name: "AbortError" }));
-    };
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-    req.on("error", (err) => {
-      console.error("[extract] grokChat error", err);
-      signal?.removeEventListener("abort", onAbort);
-      reject(err);
-    });
-    req.write(payload);
-    req.end();
-  });
-}
+    },
+  },
+  required: ["problems"],
+  additionalProperties: false,
+} as const;
+
+const SOLVE_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    correctAnswer: { type: "string" },
+    analysis: { type: "string" },
+  },
+  required: ["correctAnswer", "analysis"],
+  additionalProperties: false,
+} as const;
+
+const LOCATE_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    hasFigure: { type: "boolean" },
+    figureBbox: { anyOf: [BBOX_SCHEMA, { type: "null" }] },
+  },
+  required: ["hasFigure", "figureBbox"],
+  additionalProperties: false,
+} as const;
 
 function systemPrompt(withAnswer: boolean): string {
   const answerFields = withAnswer
@@ -155,25 +189,6 @@ Each problem object:
 bbox is the crop of THAT problem (stem + its figure) inside its source photo. Include generous margin on TOP, LEFT, RIGHT, and BELOW — especially if a diagram sits above the stem. Never cut off the top of a figure, side labels, the last sentence, or the bottom of a figure. figureBbox is only the diagram.
 Return ONLY JSON: {"problems":[ ... ]}
 `;
-}
-
-function parseJsonValue(text: string): unknown {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced ? fenced[1].trim() : trimmed;
-  const objStart = raw.indexOf("{");
-  const arrStart = raw.indexOf("[");
-  const start =
-    objStart < 0 ? arrStart : arrStart < 0 ? objStart : Math.min(objStart, arrStart);
-  if (start < 0) throw new Error("模型未返回 JSON");
-  if (raw[start] === "[") {
-    const end = raw.lastIndexOf("]");
-    if (end <= start) throw new Error("模型未返回 JSON");
-    return JSON.parse(raw.slice(start, end + 1));
-  }
-  const end = raw.lastIndexOf("}");
-  if (end <= start) throw new Error("模型未返回 JSON");
-  return JSON.parse(raw.slice(start, end + 1));
 }
 
 function clampDifficulty(value: unknown): 1 | 2 | 3 | 4 | 5 {
@@ -321,7 +336,7 @@ function resolvePhotos(data: ExtractInput): string[] {
   return [];
 }
 
-async function runGrokExtract(
+async function runCodexExtract(
   data: ExtractInput,
   signal?: AbortSignal,
   onProgress?: (current: number, total: number) => void,
@@ -341,7 +356,7 @@ async function runGrokExtract(
     for (let i = 0; i < photos.length; i++) {
       if (signal?.aborted) break;
       onProgress?.(i + 1, photos.length);
-      const one = await runGrokExtract(
+      const one = await runCodexExtract(
         {
           imageDataUrl: photos[i],
           text: i === 0 ? data.text : undefined,
@@ -363,11 +378,6 @@ async function runGrokExtract(
     return { ok: true, results: collected };
   }
 
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) {
-    return { ok: false, error: "当前环境暂未开通识别能力，请稍后再试，或改为手动录入。" };
-  }
-
   const mode = data.mode ?? "extract";
   const page = photos[0];
   const withAnswer = Boolean(data.withAnswer);
@@ -386,26 +396,6 @@ async function runGrokExtract(
   if (data.text) userTextParts.push(`补充或文字题目：\n${data.text}`);
   if (data.extra) userTextParts.push(`学生备注 / 错解：\n${data.extra}`);
 
-  const content: Array<Record<string, unknown>> = [];
-  if (page) {
-    content.push({
-      type: "image_url",
-      image_url: { url: page, detail: "high" },
-    });
-  }
-  content.push({ type: "text", text: userTextParts.join("\n\n") });
-
-  const body = {
-    model: "grok-4.5",
-    temperature: 0.15,
-    max_tokens: mode === "redraw" ? 4000 : withAnswer ? 16_000 : 6000,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemPrompt(withAnswer) },
-      { role: "user", content },
-    ],
-  };
-
   try {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
@@ -413,20 +403,12 @@ async function runGrokExtract(
     else signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS);
     try {
-      const res = await grokChat(apiKey, body, controller.signal);
-      if (res.status === 429) {
-        return { ok: false, error: "识别繁忙，请稍后再试。" };
-      }
-      if (res.status < 200 || res.status >= 300) {
-        console.error("xAI extract error", res.status, res.text.slice(0, 400));
-        return { ok: false, error: "识别失败，请换一张更清晰的题目照片。" };
-      }
-      const payload = JSON.parse(res.text) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const text = payload.choices?.[0]?.message?.content ?? "";
-      if (!text) return { ok: false, error: "没有识别到内容，请重试。" };
-      const parsed = parseJsonValue(text);
+      const parsed = await runCodexJson<unknown>({
+        prompt: `${systemPrompt(withAnswer)}\n\nCURRENT TASK:\n${userTextParts.join("\n\n")}`,
+        images: page ? [page] : [],
+        outputSchema: EXTRACT_OUTPUT_SCHEMA,
+        signal: controller.signal,
+      });
       const results = normalizeBatch(parsed);
       if (!results.length) return { ok: false, error: "没有识别到题目，请重试。" };
       return { ok: true, results };
@@ -439,12 +421,12 @@ async function runGrokExtract(
       (error instanceof Error && error.name === "AbortError") ||
       (error instanceof DOMException && error.name === "AbortError");
     const msg = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-    console.error("xAI extract failed", error);
+    console.error("Codex extract failed", error);
     if (aborted) {
       return { ok: false, error: signal?.aborted ? "已取消识别。" : "识别超时了（8 分钟）。照片还在，请再点一次识别。" };
     }
     if (/timeout|UND_ERR_HEADERS|UND_ERR_BODY|aborted/i.test(msg)) {
-      return { ok: false, error: "Grok 看图时间过长，连接被掐了。照片还在，请再试一次。" };
+      return { ok: false, error: "Codex 看图时间过长，连接中断了。照片还在，请再试一次。" };
     }
     if (/json/i.test(msg)) {
       return { ok: false, error: "识别结果不完整，请再试一次。" };
@@ -469,9 +451,8 @@ export const extractProblem = createServerFn({ method: "POST" })
       invalid: true,
     };
   })
-  .middleware([authMiddleware])
   .handler(async ({ data }): Promise<ExtractResult> => {
-    return runGrokExtract(data);
+    return runCodexExtract(data);
   });
 
 export const solveProblem = createServerFn({ method: "POST" })
@@ -483,55 +464,21 @@ export const solveProblem = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .middleware([authMiddleware])
   .handler(async ({ data }): Promise<
     { ok: true; correctAnswer: string; analysis: string } | { ok: false; error: string }
   > => {
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      return { ok: false, error: "当前环境暂未开通解答能力，请稍后再试。" };
-    }
-    const content: Array<Record<string, unknown>> = [];
-    if (data.imageDataUrl) {
-      content.push({
-        type: "image_url",
-        image_url: { url: data.imageDataUrl, detail: "high" },
-      });
-    }
-    content.push({
-      type: "text",
-      text: `请解答这道中文数学题。只返回 JSON：{"correctAnswer":"简短得数，可用 $LaTeX$","analysis":"主要步骤，中文+$LaTeX$"}\n\n题目：\n${data.stem}`,
-    });
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 180_000);
     try {
-      const res = await grokChat(
-        apiKey,
-        {
-          model: "grok-4.5",
-          temperature: 0.2,
-          max_tokens: 8000,
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a mathematics teacher. Solve the given Chinese exam problem. Return JSON only with correctAnswer and analysis. Mix Chinese with $LaTeX$. Keep the answer brief; analysis is the main steps.",
-            },
-            { role: "user", content },
-          ],
-        },
-        abort.signal,
-      );
-      if (res.status === 429) return { ok: false, error: "解答繁忙，请稍后再试。" };
-      if (res.status < 200 || res.status >= 300) {
-        console.error("xAI solve error", res.status, res.text.slice(0, 400));
-        return { ok: false, error: "解答失败，请再试一次。" };
-      }
-      const payload = JSON.parse(res.text) as { choices?: { message?: { content?: string } }[] };
-      const text = payload.choices?.[0]?.message?.content ?? "";
-      if (!text) return { ok: false, error: "没有得到解答，请再试一次。" };
-      const parsed = parseJsonValue(text) as Record<string, unknown>;
+      const parsed = await runCodexJson<Record<string, unknown>>({
+        prompt:
+          "You are a mathematics teacher. Solve the Chinese exam problem below. " +
+          "Keep correctAnswer brief and explain the main steps in Chinese with $LaTeX$.\n\n" +
+          data.stem,
+        images: data.imageDataUrl ? [data.imageDataUrl] : [],
+        outputSchema: SOLVE_OUTPUT_SCHEMA,
+        signal: abort.signal,
+      });
       const correctAnswer = String(parsed.correctAnswer ?? parsed.answer ?? "").trim().slice(0, 2000);
       const analysis = String(parsed.analysis ?? parsed.solution ?? "").trim().slice(0, 8000);
       if (!correctAnswer && !analysis) return { ok: false, error: "没有得到解答，请再试一次。" };
@@ -540,7 +487,7 @@ export const solveProblem = createServerFn({ method: "POST" })
       const aborted =
         (error instanceof Error && error.name === "AbortError") ||
         (error instanceof DOMException && error.name === "AbortError");
-      console.error("xAI solve failed", error);
+      console.error("Codex solve failed", error);
       if (aborted) return { ok: false, error: "解答超时了，请再试一次。" };
       return { ok: false, error: "解答中断了，请检查网络后重试。" };
     } finally {
@@ -550,7 +497,6 @@ export const solveProblem = createServerFn({ method: "POST" })
 
 export const stashExtractImage = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ imageDataUrl: z.string().min(32).max(24_000_000) }).parse(input))
-  .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const id = crypto.randomUUID();
     imageBag.set(id, data.imageDataUrl);
@@ -571,16 +517,12 @@ export const startExtractJob = createServerFn({ method: "POST" })
       invalid: true,
     };
   })
-  .middleware([authMiddleware])
   .handler(async ({ data }): Promise<{ ok: true; jobId: string } | { ok: false; error: string }> => {
     pruneJobs();
     if (data.invalid) return { ok: false, error: "照片太大或格式不对，请换一张再试。" };
     const photos = resolvePhotos(data);
     if (!photos.length && !data.text) {
       return { ok: false, error: data.imageIds?.length ? "照片在服务器丢了，请再点一次识别。" : "请先拍照或粘贴题目文字" };
-    }
-    if (!process.env.XAI_API_KEY) {
-      return { ok: false, error: "当前环境暂未开通识别能力，请稍后再试，或改为手动录入。" };
     }
     const jobId = crypto.randomUUID();
     const abort = new AbortController();
@@ -593,7 +535,7 @@ export const startExtractJob = createServerFn({ method: "POST" })
     };
     jobs.set(jobId, job);
     persistJob(jobId, job);
-    void runGrokExtract(data, abort.signal, (current, total) => {
+    void runCodexExtract(data, abort.signal, (current, total) => {
       const live = jobs.get(jobId);
       if (live && live.status === "running") {
         live.current = current;
@@ -620,7 +562,6 @@ export const startExtractJob = createServerFn({ method: "POST" })
 
 export const pollExtractJob = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ jobId: z.string().min(8).max(80) }).parse(input))
-  .middleware([authMiddleware])
   .handler(async ({ data }): Promise<
     | { status: "running"; current?: number; total?: number; startedAt?: number }
     | { status: "done"; results: ExtractedProblem[] }
@@ -643,7 +584,6 @@ export const pollExtractJob = createServerFn({ method: "POST" })
 
 export const cancelExtractJob = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ jobId: z.string().min(8).max(80) }).parse(input))
-  .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const job = jobs.get(data.jobId);
     if (job?.status === "running") {
@@ -669,39 +609,14 @@ Rules:
 
 export const locateFigure = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ imageDataUrl: z.string().min(32).max(2_800_000) }).parse(input))
-  .middleware([authMiddleware])
   .handler(
     async ({ data }): Promise<{ ok: true; bbox?: ImageBBox } | { ok: false; error: string }> => {
-      const apiKey = process.env.XAI_API_KEY;
-      if (!apiKey) return { ok: false, error: "暂未开通定位" };
       try {
-        const res = await fetch("https://api.x.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: "grok-4.5",
-            temperature: 0,
-            max_tokens: 400,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: LOCATE_PROMPT },
-              {
-                role: "user",
-                content: [
-                  { type: "image_url", image_url: { url: data.imageDataUrl, detail: "high" } },
-                  { type: "text", text: "标出图形框。" },
-                ],
-              },
-            ],
-          }),
+        const parsed = await runCodexJson<Record<string, unknown>>({
+          prompt: `${LOCATE_PROMPT}\n\n标出图形框。`,
+          images: [data.imageDataUrl],
+          outputSchema: LOCATE_OUTPUT_SCHEMA,
         });
-        if (!res.ok) return { ok: false, error: "定位失败" };
-        const payload = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-        const text = payload.choices?.[0]?.message?.content ?? "";
-        const parsed = parseJsonValue(text) as Record<string, unknown>;
         if (parsed.hasFigure === false) return { ok: true };
         const bbox = normalizeBBox(parsed.figureBbox ?? parsed.bbox, 0.04);
         return { ok: true, bbox };

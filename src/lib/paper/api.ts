@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { authMiddleware } from "@/lib/auth/middleware";
+import { localUserMiddleware } from "@/lib/local-user";
 import { getSql } from "@/lib/db";
 
 let schemaReady: Promise<void> | null = null;
@@ -25,7 +25,7 @@ async function ensurePaperSchema() {
 }
 
 export const getPaperSessionFn = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context }) => {
     await ensurePaperSchema();
     const sql = await getSql();
@@ -43,7 +43,7 @@ export const putPaperSessionFn = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([localUserMiddleware])
   .handler(async ({ context, data }) => {
     await ensurePaperSchema();
     const sql = await getSql();

@@ -2,7 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { BookOpen, Camera, FileText, RotateCcw } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Logo } from "@/components/brand/logo";
-import { AuthSlot } from "@/components/layout/auth-slot";
+import { LOCAL_USER_ID } from "@/lib/local-user";
 import { usePaperStore } from "@/lib/paper/store";
 import { useProblemStore } from "@/lib/problems/store";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hydratePaper = usePaperStore((s) => s.hydrate);
 
   useEffect(() => {
-    hydratePaper(userId ?? "guest");
+    hydratePaper(userId ?? LOCAL_USER_ID);
   }, [userId, hydratePaper]);
 
   return (
@@ -54,7 +54,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 );
               })}
             </nav>
-            <AuthSlot />
           </div>
         </div>
       </header>

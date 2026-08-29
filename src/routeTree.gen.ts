@@ -11,11 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CaptureRouteImport } from './routes/capture'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as PaperRouteImport } from './routes/paper'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as PIdRouteImport } from './routes/p.$id'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -25,11 +23,6 @@ const IndexRoute = IndexRouteImport.update({
 const CaptureRoute = CaptureRouteImport.update({
   id: '/capture',
   path: '/capture',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PaperRoute = PaperRouteImport.update({
@@ -47,78 +40,43 @@ const PIdRoute = PIdRouteImport.update({
   path: '/p/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
-  '/login': typeof LoginRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
-  '/login': typeof LoginRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
-  '/login': typeof LoginRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/capture'
-    | '/login'
-    | '/paper'
-    | '/review'
-    | '/p/$id'
-    | '/api/auth/$'
+  fullPaths: '/' | '/capture' | '/paper' | '/review' | '/p/$id'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/capture'
-    | '/login'
-    | '/paper'
-    | '/review'
-    | '/p/$id'
-    | '/api/auth/$'
-  id:
-    | '__root__'
-    | '/'
-    | '/capture'
-    | '/login'
-    | '/paper'
-    | '/review'
-    | '/p/$id'
-    | '/api/auth/$'
+  to: '/' | '/capture' | '/paper' | '/review' | '/p/$id'
+  id: '__root__' | '/' | '/capture' | '/paper' | '/review' | '/p/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CaptureRoute: typeof CaptureRoute
-  LoginRoute: typeof LoginRoute
   PaperRoute: typeof PaperRoute
   ReviewRoute: typeof ReviewRoute
   PIdRoute: typeof PIdRoute
-  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -135,13 +93,6 @@ declare module '@tanstack/react-router' {
       path: '/capture'
       fullPath: '/capture'
       preLoaderRoute: typeof CaptureRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/paper': {
@@ -165,24 +116,15 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CaptureRoute: CaptureRoute,
-  LoginRoute: LoginRoute,
   PaperRoute: PaperRoute,
   ReviewRoute: ReviewRoute,
   PIdRoute: PIdRoute,
-  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

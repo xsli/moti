@@ -88,6 +88,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const [solving, setSolving] = useState(false);
   const noteValue = notes ?? problem.notes;
   const hasAnswer = Boolean(problem.correctAnswer.trim());
+  const parentGroupId = problem.collectionId || "ungrouped";
 
   async function askGrok() {
     if (!problem.stem.trim()) {
@@ -146,9 +147,9 @@ function ProblemDetail({ problem }: { problem: Problem }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="ghost" size="sm">
-          <Link to="/">
+          <Link to="/" search={{ g: parentGroupId }}>
             <ArrowLeft className="size-4" />
-            本子
+            返回
           </Link>
         </Button>
         <div className="flex flex-wrap gap-2">
@@ -329,7 +330,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
                 void deleteProblem(problem.id).then(() => {
                   setConfirmDelete(false);
                   toast.success("已删除");
-                  void navigate({ to: "/" });
+                  void navigate({ to: "/", search: { g: parentGroupId } });
                 });
               }}
             >

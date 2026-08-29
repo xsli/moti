@@ -9,12 +9,19 @@ import {
   emptySession,
   idsFromRows,
   mergeSession,
+  normalizePaperTitle,
   parseSession,
   removeFromBasket,
   saveTemplate,
 } from "./session.ts";
 
 describe("paper session", () => {
+  it("normalizes legacy default paper titles", () => {
+    assert.equal(normalizePaperTitle("错题练习卷", "exam"), "墨题练习卷");
+    assert.equal(normalizePaperTitle("错题学案", "handout"), "墨题学案");
+    assert.equal(normalizePaperTitle("自定义标题", "exam"), "自定义标题");
+  });
+
   it("adds unique ids and keeps order", () => {
     let session = emptySession();
     session = addToBasket(session, ["b", "a", "b", "c"]);
@@ -34,10 +41,11 @@ describe("paper session", () => {
   it("saves a paper template with headings and scores", () => {
     const session = saveTemplate(emptySession(), {
       name: "周六数学卷",
-      title: "错题练习卷",
+      title: "墨题练习卷",
       withAnswers: true,
+      blankLines: 20,
       rows: [
-        { kind: "heading", id: "h1", title: "填空题", perScore: 4 },
+        { kind: "heading", id: "h1", title: "填空题", perScore: 4, blankLines: 20 },
         { kind: "problem", id: "p1", problemId: "prob-1" },
         { kind: "heading", id: "h2", title: "解答题", perScore: 10 },
         { kind: "problem", id: "p2", problemId: "prob-2" },
@@ -47,8 +55,10 @@ describe("paper session", () => {
     const tpl = session.templates[0];
     assert.equal(tpl?.name, "周六数学卷");
     assert.equal(tpl?.withAnswers, true);
+    assert.equal(tpl?.blankLines, 20);
     assert.deepEqual(idsFromRows(tpl?.rows ?? []), ["prob-1", "prob-2"]);
     assert.equal(tpl?.rows[0]?.kind === "heading" && tpl.rows[0].perScore, 4);
+    assert.equal(tpl?.rows[0]?.kind === "heading" && tpl.rows[0].blankLines, 20);
   });
 
   it("drops missing problems when applying a template", () => {

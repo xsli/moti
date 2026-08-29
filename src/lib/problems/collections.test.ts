@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { coerceCollection, defaultCollectionName, mergeCollections } from "./collections.ts";
+import { coerceCollection, defaultCollectionName, mergeCollections, sortCollectionsByOrder } from "./collections.ts";
 import { moveId, sortBySourceOrder, spliceVisibleOrder } from "./order.ts";
 import type { Problem } from "./types.ts";
 
@@ -10,6 +10,7 @@ describe("collections", () => {
     assert.equal(item?.name, "3月月考卷");
     assert.equal(item?.kind, "exam");
     assert.equal(item?.groupName, "");
+    assert.equal(item?.sortOrder, 0);
   });
 
   it("keeps a free-text folder", () => {
@@ -38,12 +39,25 @@ describe("collections", () => {
 
   it("merges groups by updatedAt", () => {
     const merged = mergeCollections(
-      [{ id: "c1", name: "新", kind: "unit", groupName: "学而思", createdAt: 1, updatedAt: 5 }],
-      [{ id: "c1", name: "旧", kind: "exam", groupName: "", createdAt: 1, updatedAt: 2 }],
+      [{ id: "c1", name: "新", kind: "unit", groupName: "学而思", sortOrder: 2, createdAt: 1, updatedAt: 5 }],
+      [{ id: "c1", name: "旧", kind: "exam", groupName: "", sortOrder: 1, createdAt: 1, updatedAt: 2 }],
     );
     assert.equal(merged[0]?.name, "新");
     assert.equal(merged[0]?.kind, "unit");
     assert.equal(merged[0]?.groupName, "学而思");
+    assert.equal(merged[0]?.sortOrder, 2);
+  });
+
+  it("keeps explicit collection order and puts new unranked groups first", () => {
+    const sorted = sortCollectionsByOrder(
+      [
+        { id: "second", sortOrder: 2, recent: 20 },
+        { id: "new", sortOrder: 0, recent: 30 },
+        { id: "first", sortOrder: 1, recent: 10 },
+      ],
+      (item) => item.recent,
+    );
+    assert.deepEqual(sorted.map((item) => item.id), ["new", "first", "second"]);
   });
 
   it("builds a default capture group name", () => {

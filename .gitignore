@@ -6,9 +6,9 @@ dist
 .nitro
 .tanstack
 .vercel
-.grok
 .data
 .data/**
+.data-*
 *.broken
 .env
 .env.*

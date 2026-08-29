@@ -108,6 +108,10 @@
   font-size: 1.05em;
 }
 
+.math-compact .katex-display {
+  overflow-x: hidden;
+}
+
 .exam-preview-wrap {
   overflow-x: auto;
   padding-bottom: 1rem;

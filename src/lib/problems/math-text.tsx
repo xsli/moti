@@ -102,16 +102,18 @@ export function MathText({
   text,
   className,
   inline = false,
+  compact = false,
 }: {
   text: string;
   className?: string;
   inline?: boolean;
+  compact?: boolean;
 }) {
   const pieces = useMemo(() => splitMath(text.replace(/\r\n/g, "\n")), [text]);
   const Tag = inline ? "span" : "div";
 
   return (
-    <Tag className={cn(!inline && "text-pretty leading-relaxed", className)}>
+    <Tag className={cn(!inline && "text-pretty leading-relaxed", compact && "math-compact", className)}>
       {pieces.map((piece, index) => {
         if (piece.type === "text") {
           return piece.value.split("\n").map((line, lineIndex, arr) => (
@@ -124,7 +126,11 @@ export function MathText({
         return (
           <span
             key={index}
-            className={piece.display ? "block my-2 overflow-x-auto" : "math-inline"}
+            className={
+              piece.display
+                ? cn("block my-2", compact ? "overflow-hidden" : "overflow-x-auto")
+                : "math-inline"
+            }
             dangerouslySetInnerHTML={{ __html: renderMath(piece.value, piece.display) }}
           />
         );

@@ -15,7 +15,12 @@ import { resolveExamItems, rowsFromIds, type PaperRow, type SheetKind } from "@/
 import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
 import { paperFileStem, saveSamplePdf } from "@/lib/paper/sample";
-import { applyTemplateRows } from "@/lib/paper/session";
+import {
+  applyTemplateRows,
+  DEFAULT_EXAM_TITLE,
+  DEFAULT_HANDOUT_TITLE,
+  normalizePaperTitle,
+} from "@/lib/paper/session";
 import {
   BLANK_LINE_OPTIONS,
   blankLineLabel,
@@ -28,7 +33,8 @@ import { usePaperStore } from "@/lib/paper/store";
 import { formatLoggedDateLong, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { idsInSourceOrder, sortBySourceOrder } from "@/lib/problems/order";
 import { useProblemStore } from "@/lib/problems/store";
-import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
+import { matchesAllTags } from "@/lib/problems/tags";
+import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
@@ -56,7 +62,7 @@ function PaperPage() {
     return item ? `${item.id}:${item.updatedAt}` : "pending";
   });
   const [rows, setRows] = useState<PaperRow[]>([]);
-  const [title, setTitle] = useState("错题练习卷");
+  const [title, setTitle] = useState(DEFAULT_EXAM_TITLE);
   const [withAnswers, setWithAnswers] = useState(false);
   const [blankLines, setBlankLines] = useState<BlankLines>(DEFAULT_BLANK_LINES);
   const [blankAuto, setBlankAuto] = useState(false);
@@ -73,7 +79,7 @@ function PaperPage() {
       const available = new Set(selectedIds);
       const nextRows = applyTemplateRows(template.rows, available);
       setRows(nextRows.length ? nextRows : rowsFromIds(selectedIds));
-      setTitle(template.title || "错题练习卷");
+      setTitle(normalizePaperTitle(template.title, template.sheetKind));
       setWithAnswers(template.withAnswers);
       setBlankLines(coerceBlankLines(template.blankLines));
       setBlankAuto(coerceBlankAuto(template.blankAuto, template.blankLines));
@@ -82,7 +88,7 @@ function PaperPage() {
       return;
     }
     setRows(rowsFromIds(selectedIds));
-    setTitle("错题练习卷");
+    setTitle(DEFAULT_EXAM_TITLE);
     setWithAnswers(false);
     setBlankLines(DEFAULT_BLANK_LINES);
     setBlankAuto(false);
@@ -115,8 +121,8 @@ function PaperPage() {
         sheetKind={sheetKind}
         onSheetKind={(kind) => {
           setSheetKind(kind);
-          if (kind === "handout" && title === "错题练习卷") setTitle("错题学案");
-          if (kind === "exam" && title === "错题学案") setTitle("错题练习卷");
+          if (kind === "handout" && title === DEFAULT_EXAM_TITLE) setTitle(DEFAULT_HANDOUT_TITLE);
+          if (kind === "exam" && title === DEFAULT_HANDOUT_TITLE) setTitle(DEFAULT_EXAM_TITLE);
           if (kind === "handout" && !rows.some((row) => row.kind === "heading")) {
             setRows([
               { kind: "heading", id: crypto.randomUUID(), title: "练习", perScore: 0, blankLines: 6 },
@@ -153,8 +159,8 @@ function PaperPage() {
       onBlankAuto={setBlankAuto}
       onSheetKind={(kind) => {
         setSheetKind(kind);
-        if (kind === "handout" && title === "错题练习卷") setTitle("错题学案");
-        if (kind === "exam" && title === "错题学案") setTitle("错题练习卷");
+        if (kind === "handout" && title === DEFAULT_EXAM_TITLE) setTitle(DEFAULT_HANDOUT_TITLE);
+        if (kind === "exam" && title === DEFAULT_HANDOUT_TITLE) setTitle(DEFAULT_EXAM_TITLE);
         if (kind === "handout" && !rows.some((row) => row.kind === "heading")) {
           setRows([
             { kind: "heading", id: crypto.randomUUID(), title: "练习", perScore: 0, blankLines: 6 },
@@ -175,7 +181,8 @@ function PaperPicker() {
   const [filter, setFilter] = useState<"all" | Subject>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [dateDay, setDateDay] = useState("");
-  const [tag, setTag] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [mastery, setMastery] = useState<"all" | Mastery>("all");
   const [query, setQuery] = useState("");
 
   const allTags = useMemo(() => {
@@ -189,12 +196,13 @@ function PaperPicker() {
     const list = problems.filter((p) => {
       if (filter !== "all" && p.subject !== filter) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
-      if (tag && !p.tags.includes(tag)) return false;
+      if (!matchesAllTags(p.tags, tags)) return false;
+      if (mastery !== "all" && p.mastery !== mastery) return false;
       if (!q) return true;
       return `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase().includes(q);
     });
     return sortBySourceOrder(list);
-  }, [problems, filter, dateFilter, dateDay, tag, query]);
+  }, [problems, filter, dateFilter, dateDay, tags, mastery, query]);
 
   const hiddenPicked = useMemo(
     () => problems.filter((p) => picked.has(p.id) && !visible.some((v) => v.id === p.id)),
@@ -226,6 +234,10 @@ function PaperPicker() {
   const subjectOptions: { id: "all" | Subject; label: string }[] = [
     { id: "all", label: "全部科目" },
     ...SUBJECTS.map((s) => ({ id: s as "all" | Subject, label: SUBJECT_LABEL[s] })),
+  ];
+  const masteryOptions: { id: "all" | Mastery; label: string }[] = [
+    { id: "all", label: "全部状态" },
+    ...(["new", "reviewing", "mastered"] as Mastery[]).map((id) => ({ id, label: MASTERY_LABEL[id] })),
   ];
 
   return (
@@ -265,7 +277,14 @@ function PaperPicker() {
               setDateDay(day);
             }}
           />
-          <TagFilter tags={allTags} value={tag} onChange={setTag} />
+          <TagFilter tags={allTags} value={tags} onChange={setTags} />
+          <FilterMenu
+            idleLabel="掌握状态"
+            emptyValue="all"
+            value={mastery}
+            options={masteryOptions}
+            onChange={setMastery}
+          />
         </div>
       </div>
 

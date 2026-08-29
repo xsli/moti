@@ -22,6 +22,16 @@ export type PaperSession = {
 const BASKET_MAX = 80;
 const TEMPLATE_MAX = 20;
 
+export const DEFAULT_EXAM_TITLE = "墨题练习卷";
+export const DEFAULT_HANDOUT_TITLE = "墨题学案";
+
+export function normalizePaperTitle(raw: unknown, sheetKind: SheetKind): string {
+  const title = String(raw ?? "").trim().slice(0, 40);
+  if (title === "错题练习卷") return DEFAULT_EXAM_TITLE;
+  if (title === "错题学案") return DEFAULT_HANDOUT_TITLE;
+  return title || (sheetKind === "handout" ? DEFAULT_HANDOUT_TITLE : DEFAULT_EXAM_TITLE);
+}
+
 export function emptySession(): PaperSession {
   return { basket: [], templates: [] };
 }
@@ -86,14 +96,15 @@ export function parseSession(raw: unknown): PaperSession {
       const id = String(row.id ?? "").slice(0, 80);
       const name = String(row.name ?? "").trim().slice(0, 40);
       if (!id || !name) continue;
+      const sheetKind = row.sheetKind === "handout" ? "handout" : "exam";
       templates.push({
         id,
         name,
-        title: String(row.title ?? "错题练习卷").slice(0, 40) || "错题练习卷",
+        title: normalizePaperTitle(row.title, sheetKind),
         withAnswers: Boolean(row.withAnswers),
         blankLines: coerceBlankLines(row.blankLines),
         blankAuto: coerceBlankAuto(row.blankAuto, row.blankLines),
-        sheetKind: row.sheetKind === "handout" ? "handout" : "exam",
+        sheetKind,
         rows: coerceRows(row.rows),
         createdAt: Number(row.createdAt) || Date.now(),
         updatedAt: Number(row.updatedAt) || Date.now(),
@@ -167,7 +178,7 @@ export function applyLayoutToIds(rows: PaperRow[], problemIds: string[]): PaperR
   if (!named.length) return ids.map((id) => problemRow(id));
 
   const out: PaperRow[] = [];
-  let rest = [...ids];
+  const rest = [...ids];
   const lead = sections[0]?.heading ? 0 : (sections[0]?.slots ?? 0);
   if (lead > 0) {
     out.push(...rest.splice(0, lead).map(problemRow));
@@ -205,7 +216,7 @@ export function saveTemplate(
   const payload: PaperTemplate = {
     id: input.id ?? crypto.randomUUID(),
     name,
-    title: input.title.trim().slice(0, 40) || "错题练习卷",
+    title: input.title.trim().slice(0, 40) || (input.sheetKind === "handout" ? DEFAULT_HANDOUT_TITLE : DEFAULT_EXAM_TITLE),
     withAnswers: input.withAnswers,
     blankLines: coerceBlankLines(input.blankLines ?? DEFAULT_BLANK_LINES),
     blankAuto: Boolean(input.blankAuto),

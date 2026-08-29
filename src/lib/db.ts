@@ -143,8 +143,9 @@ async function createPgliteSql(): Promise<Sql> {
 
     const { mkdir, readFile, rename, unlink, writeFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
-    const dataDir = "/workspace/.data/pglite";
-    const ownerPath = "/workspace/.data/pglite.owner";
+    const dataRoot = process.env.MOTI_DATA_DIR || join(process.cwd(), ".data");
+    const dataDir = join(dataRoot, "pglite");
+    const ownerPath = join(dataRoot, "pglite.owner");
 
     async function pidAlive(pid: number): Promise<boolean> {
       if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -168,7 +169,7 @@ async function createPgliteSql(): Promise<Sql> {
     }
 
     async function claimOwner(): Promise<"ours" | "busy"> {
-      await mkdir("/workspace/.data", { recursive: true });
+      await mkdir(dataRoot, { recursive: true });
       try {
         const raw = await readFile(ownerPath, "utf8");
         const pid = Number(raw.trim());

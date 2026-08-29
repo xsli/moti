@@ -1,12 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ImagePlus, LoaderCircle, Type, Upload, X } from "lucide-react";
+import { ImagePlus, LoaderCircle, Type, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConstructionLoader } from "@/components/capture/construction-loader";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
-import { TagEditor } from "@/components/notebook/tag-editor";
+import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +30,7 @@ import { cropDataUrl, dataUrlForGrok, fileToDataUrl } from "@/lib/image/compress
 import type { ImageBBox } from "@/lib/image/bbox";
 import { MathText } from "@/lib/problems/math-text";
 import { useProblemStore } from "@/lib/problems/store";
+import { applyTagChanges } from "@/lib/problems/tags";
 import {
   SUBJECT_LABEL,
   SUBJECTS,
@@ -117,6 +118,7 @@ function CapturePage() {
     return [...set];
   }, [problems]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const batchTagEditorRef = useRef<TagEditorHandle>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [images, setImages] = useState<string[]>([]);
   const [text, setText] = useState("");
@@ -415,11 +417,7 @@ function CapturePage() {
     const removed = common.filter((t) => !next.includes(t));
     setDrafts((prev) =>
       prev.map((item) => {
-        let tags = item.tags.filter((t) => !removed.includes(t));
-        for (const tag of added) {
-          if (!tags.includes(tag)) tags = [...tags, tag].slice(0, 8);
-        }
-        return { ...item, tags };
+        return { ...item, tags: applyTagChanges(item.tags, added, removed) };
       }),
     );
   }
@@ -466,11 +464,24 @@ function CapturePage() {
     });
   }
 
-  async function saveCurrent() {
+  function pendingBatchChanges() {
+    const next = batchTagEditorRef.current?.commitDraft() ?? batchCommonTags;
+    return {
+      added: next.filter((tag) => !batchCommonTags.includes(tag)),
+      removed: batchCommonTags.filter((tag) => !next.includes(tag)),
+    };
+  }
+
+  async function saveCurrent(currentTags?: string[]) {
     const item = drafts[index];
     if (!item) return;
+    const { added, removed } = pendingBatchChanges();
+    const finalItem = {
+      ...item,
+      tags: applyTagChanges(currentTags ?? item.tags, added, removed),
+    };
     try {
-      await saveOne(item, index + 1);
+      await saveOne(finalItem, index + 1);
       const remain = drafts.filter((_, i) => i !== index);
       toast.success(collectionLabel());
       if (!remain.length) {
@@ -516,14 +527,19 @@ function CapturePage() {
     void clearCaptureHold();
   }
 
-  async function saveAll() {
+  async function saveAll(currentTags?: string[]) {
     if (!drafts.length) return;
+    const { added, removed } = pendingBatchChanges();
+    const finalDrafts = drafts.map((item, itemIndex) => ({
+      ...item,
+      tags: applyTagChanges(itemIndex === index && currentTags ? currentTags : item.tags, added, removed),
+    }));
     setBusy(true);
     try {
-      for (const [i, item] of drafts.entries()) {
+      for (const [i, item] of finalDrafts.entries()) {
         await saveOne(item, i + 1);
       }
-      toast.success(`${collectionLabel()}，${drafts.length} 道。可继续拍`);
+      toast.success(`${collectionLabel()}，${finalDrafts.length} 道。可继续拍`);
       resetForMore();
     } catch {
       /* store already toasted */
@@ -591,10 +607,7 @@ function CapturePage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight">拍下错题</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          先选组，再连续拍。多张试卷一次识别。多道题会自动拆开。
-        </p>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">拍题</h1>
         <div className="mt-4">
           <CollectionPicker value={collectionId} onChange={pickCollection} />
         </div>
@@ -749,6 +762,7 @@ function CapturePage() {
               <p className="mt-0.5 text-xs text-muted-foreground">加在这里会进每一道；单题还可再改。</p>
               <div className="mt-3">
                 <TagEditor
+                  ref={batchTagEditorRef}
                   tags={batchCommonTags}
                   suggestions={captureSuggestions}
                   placeholder="例如：期末、函数"
@@ -791,8 +805,8 @@ function ReviewForm({
   image?: string;
   suggestions?: string[];
   onChange: (next: Partial<ExtractedProblem>) => void;
-  onSave: () => void;
-  onSaveAll?: () => void;
+  onSave: (tags?: string[]) => void;
+  onSaveAll?: (tags?: string[]) => void;
   onRetry: () => void;
   onBack: () => void;
   busy: boolean;
@@ -800,6 +814,7 @@ function ReviewForm({
   const figureCount = draft.figures.length;
   const difficultyDots = useMemo(() => [1, 2, 3, 4, 5] as const, []);
   const [needCrop, setNeedCrop] = useState(figureCount > 0);
+  const tagEditorRef = useRef<TagEditorHandle>(null);
   const cropBox = draft.figureBbox ?? defaultCropBox();
 
   function commitCrop(box: ImageBBox) {
@@ -837,6 +852,7 @@ function ReviewForm({
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">这道题的标签</span>
             <TagEditor
+              ref={tagEditorRef}
               tags={draft.tags}
               suggestions={suggestions}
               placeholder="例如：相似、二次函数"
@@ -915,12 +931,21 @@ function ReviewForm({
           重新识别这一题
         </Button>
         {onSaveAll ? (
-          <Button variant="secondary" onClick={onSaveAll} disabled={busy}>
+          <Button
+            variant="secondary"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSaveAll(tagEditorRef.current?.commitDraft())}
+            disabled={busy}
+          >
             {busy ? <LoaderCircle className="animate-spin" /> : null}
             全部收入本组
           </Button>
         ) : null}
-        <Button onClick={onSave} disabled={busy}>
+        <Button
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onSave(tagEditorRef.current?.commitDraft())}
+          disabled={busy}
+        >
           保存这一题
         </Button>
       </div>
