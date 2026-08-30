@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Camera, Download, FolderOpen, GripVertical, LayoutGrid, List, Pencil, Plus, Search, Upload } from "lucide-react";
+import { ArrowLeft, Camera, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Upload } from "lucide-react";
 import { type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
@@ -31,6 +31,7 @@ import {
 import { idsInSourceOrder, moveId, sortBySourceOrder, spliceVisibleOrder } from "@/lib/problems/order";
 import { applyTagChanges, matchesAllTags } from "@/lib/problems/tags";
 import { formatLoggedDate, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
+import { solveProblem } from "@/lib/ai/extract";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
 import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
@@ -91,6 +92,7 @@ function Home() {
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [commonTags, setCommonTags] = useState<string[]>([]);
   const [batchGroupId, setBatchGroupId] = useState("");
+  const [batchSolveProgress, setBatchSolveProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [packing, setPacking] = useState(false);
   const [layout, setLayout] = useState<BrowseLayout>("card");
@@ -203,6 +205,61 @@ function Home() {
       setGroupOpen(false);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function solveSelected() {
+    if (!selectedCount || batchSolveProgress) return;
+    const targets = idsInSourceOrder(problems, selected)
+      .map((id) => problems.find((problem) => problem.id === id))
+      .filter((problem): problem is Problem => Boolean(problem));
+    const pending = targets.filter((problem) => !problem.correctAnswer.trim() || !problem.analysis.trim());
+    const skipped = targets.length - pending.length;
+
+    if (!pending.length) {
+      toast.info("选中的题目已有答案和解析");
+      return;
+    }
+
+    let done = 0;
+    let failed = 0;
+    setBatchSolveProgress({ done, total: pending.length, failed });
+    try {
+      for (const problem of pending) {
+        try {
+          if (!problem.stem.trim()) {
+            failed += 1;
+            continue;
+          }
+          const result = await solveProblem({
+            data: {
+              stem: problem.stem,
+              imageDataUrl: problem.figures[0]?.image || problem.sourceImage,
+            },
+          });
+          if (!result.ok) {
+            failed += 1;
+            continue;
+          }
+          await updateProblem(problem.id, {
+            correctAnswer: result.correctAnswer,
+            analysis: result.analysis,
+          });
+        } catch {
+          failed += 1;
+        } finally {
+          done += 1;
+          setBatchSolveProgress({ done, total: pending.length, failed });
+        }
+      }
+
+      const succeeded = pending.length - failed;
+      const skippedText = skipped ? `，跳过已有答案 ${skipped} 道` : "";
+      if (!failed) toast.success(`已生成 ${succeeded} 道题的答案和解析${skippedText}`);
+      else if (succeeded) toast.warning(`已完成 ${succeeded} 道，${failed} 道未生成${skippedText}`);
+      else toast.error(`这 ${failed} 道题暂时没有生成答案${skippedText}`);
+    } finally {
+      setBatchSolveProgress(null);
     }
   }
 
@@ -473,6 +530,21 @@ function Home() {
                 }
               >
                 组卷
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedCount || busy || Boolean(batchSolveProgress)}
+                onClick={() => void solveSelected()}
+              >
+                {batchSolveProgress ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                {batchSolveProgress
+                  ? `AI答题 ${batchSolveProgress.done}/${batchSolveProgress.total}`
+                  : "AI答题"}
               </Button>
               <Button
                 size="sm"

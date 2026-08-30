@@ -5,6 +5,9 @@ import type { Problem } from "@/lib/problems/types";
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 const A4_PX = 794;
+const CSS_DPI = 96;
+const PDF_DPI = 450;
+const PDF_RENDER_SCALE = PDF_DPI / CSS_DPI;
 
 async function waitImages(root: ParentNode) {
   const imgs = [...root.querySelectorAll("img")];
@@ -49,7 +52,7 @@ export async function buildExamPdf(
     await waitImages(pageEl);
     const shot = await html2canvas(pageEl, {
       backgroundColor: "#ffffff",
-      scale: 2,
+      scale: PDF_RENDER_SCALE,
       width: A4_PX,
       height: Math.round(A4_PX * (297 / 210)),
       windowWidth: A4_PX,
@@ -62,6 +65,8 @@ export async function buildExamPdf(
     const image = await pdf.embedPng(png);
     const page = pdf.addPage([PAGE_W, PAGE_H]);
     page.drawImage(image, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+    shot.width = 1;
+    shot.height = 1;
   }
 
   const bytes = await pdf.save();

@@ -7,7 +7,7 @@ import {
   hasWrittenAnswer,
   type BlankLines,
 } from "@/lib/paper/space";
-import { MathText } from "@/lib/problems/math-text";
+import { MathText, splitMathPieces } from "@/lib/problems/math-text";
 import type { Problem } from "@/lib/problems/types";
 
 const EXAM_CSS = `
@@ -286,6 +286,7 @@ const EXAM_CSS = `
   gap: 12pt;
 }
 .hn-title {
+  position: relative;
   margin: 10pt 0 8pt;
   text-align: center;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
@@ -343,12 +344,25 @@ const EXAM_CSS = `
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   margin-right: 0.4em;
 }
+.hn-idea-part { margin: 0; padding-top: 3pt; padding-bottom: 3pt; }
+.hn-idea-first { margin-top: 7pt; }
+.hn-idea-answer { padding-top: 6pt; }
 .hn-lines { margin: 6pt 0 1.15em 2em; }
 .hn-lines i {
   display: block;
   height: ${BLANK_LINE_HEIGHT_MM}mm;
   border-bottom: 0.55pt solid #c9c2b4;
 }
+.hn-lines-auto {
+  position: relative;
+  display: flow-root;
+  min-height: ${BLANK_LINE_HEIGHT_MM * 2}mm;
+  max-height: ${BLANK_LINE_HEIGHT_MM * 20}mm;
+  overflow: hidden;
+}
+.hn-lines-auto-rules { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.hn-lines-sizer { visibility: hidden; display: flow-root; min-height: ${BLANK_LINE_HEIGHT_MM * 2}mm; }
+.hn-lines-auto .hn-idea { margin: 0; }
 .hn-point {
   margin: 2pt 0 2pt 1.2em;
   padding-left: 0;
@@ -359,7 +373,8 @@ const EXAM_CSS = `
 type Block =
   | { kind: "heading"; title: string; role: HeadingRole }
   | { kind: "q"; problem: Problem; index: number; blankLines: BlankLines; role: HeadingRole; label: string }
-  | { kind: "analysis"; problem: Problem; index: number };
+  | { kind: "analysis"; problem: Problem; index: number }
+  | { kind: "handout-answer"; text: string; label?: "思路" | "答案"; first: boolean; answerStart: boolean };
 
 /** 试卷装订线旧俏皮话，暂时不用，改走 MATH_QUIPS。 */
 const SEAL_QUIPS = [
@@ -492,6 +507,35 @@ function ScoreTable({ count }: { count: number }) {
   );
 }
 
+function splitAnswerText(text: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+
+  function flush() {
+    const value = current.trim();
+    if (value) segments.push(value);
+    current = "";
+  }
+
+  for (const piece of splitMathPieces(text.trim())) {
+    if (piece.type === "math" && piece.display) {
+      flush();
+      segments.push(`$$${piece.value}$$`);
+      continue;
+    }
+
+    const value = piece.type === "math" ? `$${piece.value}$` : piece.value;
+    const lines = value.split("\n");
+    current += lines[0] ?? "";
+    for (let index = 1; index < lines.length; index += 1) {
+      flush();
+      current = lines[index] ?? "";
+    }
+  }
+  flush();
+  return segments;
+}
+
 function QuestionBlock({
   problem,
   index,
@@ -526,7 +570,6 @@ function QuestionBlock({
   const useSizer = blankAuto && hasWrittenAnswer(problem);
   const mark = <span className="exam-no">{label || `${index + 1}.`}</span>;
   const figures = problem.figures.filter((fig) => fig.image || fig.svg);
-  const showIdea = sheetKind === "handout" && withAnswers;
   const showLines = sheetKind === "handout" && role !== "points" && !withAnswers;
 
   return (
@@ -544,8 +587,7 @@ function QuestionBlock({
         : null}
       <div className={figures.length && sheetKind === "handout" ? "hn-row" : undefined}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {showIdea ? <IdeaBox problem={problem} /> : null}
-          {showLines ? <WriteLines n={blankLines} /> : null}
+          {showLines ? (useSizer ? <AutoWriteLines problem={problem} /> : <WriteLines n={blankLines} />) : null}
           {sheetKind === "exam" && blank ? (
             useSizer ? (
               <div className="exam-box">
@@ -590,6 +632,27 @@ function IdeaBox({ problem }: { problem: Problem }) {
   );
 }
 
+function HandoutAnswerPart({
+  text,
+  label,
+  first,
+  answerStart,
+}: {
+  text: string;
+  label?: "思路" | "答案";
+  first: boolean;
+  answerStart: boolean;
+}) {
+  return (
+    <div
+      className={`hn-idea hn-idea-part${first ? " hn-idea-first" : ""}${answerStart ? " hn-idea-answer" : ""}`}
+    >
+      {label ? <b>{label}</b> : null}
+      <MathText text={text} inline />
+    </div>
+  );
+}
+
 function WriteLines({ n }: { n: number }) {
   const count = Math.max(2, n);
   return (
@@ -597,6 +660,21 @@ function WriteLines({ n }: { n: number }) {
       {Array.from({ length: count }, (_, i) => (
         <i key={i} />
       ))}
+    </div>
+  );
+}
+
+function AutoWriteLines({ problem }: { problem: Problem }) {
+  return (
+    <div className="hn-lines hn-lines-auto">
+      <div className="hn-lines-auto-rules" aria-hidden="true">
+        {Array.from({ length: 20 }, (_, i) => (
+          <i key={i} />
+        ))}
+      </div>
+      <div className="hn-lines-sizer">
+        <IdeaBox problem={problem} />
+      </div>
     </div>
   );
 }
@@ -628,20 +706,13 @@ function ExamLogo({ inline }: { inline?: boolean }) {
   );
 }
 
-function HandoutHead({
-  quote,
-  analysis,
-}: {
-  quote: { text: string; by: string };
-  analysis?: boolean;
-}) {
+function HandoutHead({ quote }: { quote: { text: string; by: string } }) {
   return (
     <header className="hn-head">
       <div className="hn-top">
         <div className="hn-brand">
           <ExamLogo inline />
           <span className="hn-mark">学案</span>
-          {analysis ? <span className="exam-analysis-mark">解析</span> : null}
         </div>
         <div className="hn-meta">
           {quote.text}
@@ -652,9 +723,14 @@ function HandoutHead({
   );
 }
 
-function HandoutTitle({ title }: { title: string }) {
+function HandoutTitle({ title, analysis }: { title: string; analysis?: boolean }) {
   if (!title.trim()) return null;
-  return <h1 className="hn-title">{title}</h1>;
+  return (
+    <h1 className="hn-title">
+      <span>{title}</span>
+      {analysis ? <span className="exam-analysis-mark">解析</span> : null}
+    </h1>
+  );
 }
 
 function CoverHead({
@@ -742,6 +818,16 @@ function BlockView({
 }) {
   if (block.kind === "heading") return <SectionHead title={block.title} role={block.role} sheetKind={sheetKind} />;
   if (block.kind === "analysis") return <AnalysisBlock problem={block.problem} />;
+  if (block.kind === "handout-answer") {
+    return (
+      <HandoutAnswerPart
+        text={block.text}
+        label={block.label}
+        first={block.first}
+        answerStart={block.answerStart}
+      />
+    );
+  }
   return (
     <QuestionBlock
       problem={block.problem}
@@ -796,6 +882,30 @@ export function ExamSheet({
         });
         if (!handout && withAnswers) {
           next.push({ kind: "analysis", problem: item.problem, index: item.number - 1 });
+        } else if (handout && withAnswers) {
+          let first = true;
+          const ideaParts = splitAnswerText(item.problem.analysis);
+          const answerParts = splitAnswerText(item.problem.correctAnswer);
+          ideaParts.forEach((text, index) => {
+            next.push({
+              kind: "handout-answer",
+              text,
+              label: index === 0 ? "思路" : undefined,
+              first,
+              answerStart: false,
+            });
+            first = false;
+          });
+          answerParts.forEach((text, index) => {
+            next.push({
+              kind: "handout-answer",
+              text,
+              label: index === 0 ? "答案" : undefined,
+              first,
+              answerStart: index === 0,
+            });
+            first = false;
+          });
         }
       }
     }
@@ -835,6 +945,7 @@ export function ExamSheet({
       const titleNode = mount.querySelector("[data-measure='title']") as HTMLElement | null;
       const headH = head?.offsetHeight ?? 160;
       const titleH = titleNode?.offsetHeight ?? 0;
+      const continuationHeadH = handout ? headH : 0;
       const itemNodes = [...mount.querySelectorAll<HTMLElement>("[data-measure='item']")];
 
       function spanHeight(from: number, to: number) {
@@ -851,7 +962,11 @@ export function ExamSheet({
       const packed: Block[][] = [];
       const groups: number[][] = [];
       for (let i = 0; i < blocks.length; i += 1) {
-        if (blocks[i]?.kind === "q" && blocks[i + 1]?.kind === "analysis") {
+        const nextBlock = blocks[i + 1];
+        if (
+          blocks[i]?.kind === "q" &&
+          (nextBlock?.kind === "analysis" || (nextBlock?.kind === "handout-answer" && nextBlock.first))
+        ) {
           groups.push([i, i + 1]);
           i += 1;
         } else {
@@ -867,7 +982,7 @@ export function ExamSheet({
         if (current.length && used + h > inner) {
           packed.push(current);
           current = groupBlocks;
-          used = h;
+          used = continuationHeadH + h;
         } else {
           current.push(...groupBlocks);
           used += h;
@@ -896,7 +1011,7 @@ export function ExamSheet({
   }, [blocks, title, dateLabel, headingCount, withAnswers, blankLines, blankAuto, handout]);
 
   const head = handout ? (
-    <HandoutHead quote={quoteDeck[0] ?? MATH_QUIPS[0]!} analysis={withAnswers} />
+    <HandoutHead quote={quoteDeck[0] ?? MATH_QUIPS[0]!} />
   ) : (
     <CoverHead title={title} dateLabel={dateLabel} headingCount={headingCount} analysis={withAnswers} />
   );
@@ -912,7 +1027,7 @@ export function ExamSheet({
         <div data-measure="head">{head}</div>
         {handout ? (
           <div data-measure="title">
-            <HandoutTitle title={title} />
+            <HandoutTitle title={title} analysis={withAnswers} />
           </div>
         ) : null}
         {blocks.map((block, i) => (
@@ -942,12 +1057,11 @@ export function ExamSheet({
             {pageIndex === 0 ? (
               <>
                 {head}
-                {handout ? <HandoutTitle title={title} /> : null}
+                {handout ? <HandoutTitle title={title} analysis={withAnswers} /> : null}
               </>
             ) : handout ? (
               <HandoutHead
                 quote={quoteDeck[pageIndex % quoteDeck.length] ?? MATH_QUIPS[0]!}
-                analysis={withAnswers}
               />
             ) : null}
             {pageBlocks.map((block, i) => (

@@ -395,7 +395,8 @@ function PaperPreview({
   const [exporting, setExporting] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const dateLabel = formatLoggedDateLong(Date.now());
-  const pdfName = `${paperFileStem(title)}.pdf`;
+  const pdfStem = paperFileStem(withAnswers && !title.trim().endsWith("解析版") ? `${title}-解析版` : title);
+  const pdfName = `${pdfStem}.pdf`;
 
   function downloadTex() {
     const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto, sheetKind });
@@ -434,7 +435,7 @@ function PaperPreview({
       });
       try {
         const base64 = await blobToBase64(blob);
-        await saveSamplePdf({ data: { name: paperFileStem(title), base64 } });
+        await saveSamplePdf({ data: { name: pdfStem, base64 } });
       } catch {
         /* preview disk is optional */
       }

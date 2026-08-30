@@ -799,7 +799,7 @@ function ReviewForm({
   const figureCount = draft.figures.length;
   const difficultyDots = useMemo(() => [1, 2, 3, 4, 5] as const, []);
   const [needCrop, setNeedCrop] = useState(figureCount > 0);
-  const [showSourceImage, setShowSourceImage] = useState(false);
+  const [showSourceImage, setShowSourceImage] = useState(true);
   const tagEditorRef = useRef<TagEditorHandle>(null);
   const cropBox = draft.figureBbox ?? defaultCropBox();
 
