@@ -102,7 +102,7 @@ export function exportNotebookJson(
 ): string {
   return JSON.stringify(
     {
-      app: "墨题",
+      app: "解集",
       version: 2,
       exportedAt: Date.now(),
       problems,

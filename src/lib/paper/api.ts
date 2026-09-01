@@ -40,6 +40,7 @@ export const putPaperSessionFn = createServerFn({ method: "POST" })
       .object({
         basket: z.array(z.string().max(80)).max(80),
         templates: z.array(z.unknown()).max(20),
+        deletedTemplates: z.record(z.string().max(80), z.number()).optional().default({}),
       })
       .parse(input),
   )

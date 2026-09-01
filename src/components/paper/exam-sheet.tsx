@@ -305,16 +305,8 @@ const EXAM_CSS = `
   font-weight: 700;
   letter-spacing: 0.16em;
 }
-.hn-mark {
-  padding: 1pt 7pt 0;
-  border: 0.7pt solid #0d9f78;
-  color: #0d9f78;
-  font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
-  font-size: 9pt;
-  letter-spacing: 0.2em;
-}
-.hn-meta { max-width: 62%; font-size: 9pt; color: #1a1814; text-align: right; line-height: 1.45; }
-.hn-meta-by { display: block; margin-top: 1pt; font-size: 8pt; }
+.hn-meta { max-width: 62%; white-space: nowrap; font-size: 9pt; color: #1a1814; text-align: right; line-height: 1.45; }
+.hn-meta-by { display: inline; margin-left: 0.45em; font-size: 8pt; }
 .hn-sec {
   margin: 12pt 0 8pt;
   padding-left: 9pt;
@@ -386,7 +378,7 @@ const SEAL_QUIPS = [
   "复习卷，深呼吸，写完去喝水",
   "别在同一道题上栽第二次",
   "空白处留给明天更聪明的你",
-  "墨题在手，旧坑逐个填平",
+  "解集在手，旧坑逐个填平",
   "写得慢没关系，想清楚再落笔",
   "先把会做的写漂亮",
   "答案可以慢，思路别乱跑",
@@ -718,7 +710,7 @@ function ExamLogo({ inline }: { inline?: boolean }) {
         <path d="M7.5 24.5 L16 8.5 L24.5 24.5 Z" fill="none" stroke="#1a1814" strokeWidth="2.1" strokeLinejoin="round" />
         <circle cx="16" cy="19.2" r="3.6" fill="#0d9f78" />
       </svg>
-      <span className={inline ? "hn-logo-name" : "exam-brand-name"}>墨题</span>
+      <span className={inline ? "hn-logo-name" : "exam-brand-name"}>解集</span>
     </div>
   );
 }
@@ -729,10 +721,9 @@ function HandoutHead({ quote }: { quote: { text: string; by: string } }) {
       <div className="hn-top">
         <div className="hn-brand">
           <ExamLogo inline />
-          <span className="hn-mark">学案</span>
         </div>
         <div className="hn-meta">
-          {quote.text}
+          {quote.text.replace(/。$/, "")}
           <span className="hn-meta-by">——{quote.by}</span>
         </div>
       </div>
@@ -1066,7 +1057,7 @@ export function ExamSheet({
           <article key={pageIndex} className="exam-page">
             {handout ? null : (
               <Seal
-                msg={(quoteDeck[pageIndex % quoteDeck.length] ?? MATH_QUIPS[0]!).text}
+                msg={(quoteDeck[pageIndex % quoteDeck.length] ?? MATH_QUIPS[0]!).text.replace(/。$/, "")}
                 bind={`——${(quoteDeck[pageIndex % quoteDeck.length] ?? MATH_QUIPS[0]!).by}`}
               />
             )}
@@ -1095,7 +1086,7 @@ export function ExamSheet({
             <div className="exam-page-no">
               {handout ? (
                 <>
-                  <span>{title.trim() || "墨题学案"}</span>
+                  <span>{title.trim() || "解集学案"}</span>
                   <span>
                     第 {pageIndex + 1} 页 · 共 {pages.length} 页
                   </span>

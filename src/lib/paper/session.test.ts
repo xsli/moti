@@ -17,8 +17,10 @@ import {
 
 describe("paper session", () => {
   it("normalizes legacy default paper titles", () => {
-    assert.equal(normalizePaperTitle("错题练习卷", "exam"), "墨题练习卷");
-    assert.equal(normalizePaperTitle("错题学案", "handout"), "墨题学案");
+    assert.equal(normalizePaperTitle("错题练习卷", "exam"), "解集练习卷");
+    assert.equal(normalizePaperTitle("错题学案", "handout"), "解集学案");
+    assert.equal(normalizePaperTitle("墨题练习卷", "exam"), "解集练习卷");
+    assert.equal(normalizePaperTitle("墨题学案", "handout"), "解集学案");
     assert.equal(normalizePaperTitle("自定义标题", "exam"), "自定义标题");
   });
 
@@ -41,7 +43,7 @@ describe("paper session", () => {
   it("saves a paper template with headings and scores", () => {
     const session = saveTemplate(emptySession(), {
       name: "周六数学卷",
-      title: "墨题练习卷",
+      title: "解集练习卷",
       withAnswers: true,
       blankLines: 20,
       rows: [
@@ -89,6 +91,23 @@ describe("paper session", () => {
     assert.equal(parsed.templates[0]?.name, "A");
     const gone = deleteTemplate(parsed, parsed.templates[0]?.id ?? "");
     assert.equal(gone.templates.length, 0);
+    assert.ok(Object.keys(gone.deletedTemplates).length);
+  });
+
+  it("does not restore a deleted template when stale sessions are merged", () => {
+    const saved = saveTemplate(emptySession(), {
+      id: "deleted-template",
+      name: "会复活的模板",
+      title: "测试卷",
+      withAnswers: false,
+      rows: [],
+    });
+    const deleted = deleteTemplate(saved, "deleted-template");
+    const reloaded = mergeSession(deleted, saved);
+
+    assert.equal(reloaded.templates.length, 0);
+    assert.ok(reloaded.deletedTemplates["deleted-template"]);
+    assert.equal(parseSession(JSON.parse(JSON.stringify(reloaded))).templates.length, 0);
   });
 
   it("merges templates across user keys without dropping newer ones", () => {

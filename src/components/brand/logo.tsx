@@ -21,7 +21,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
     <span className="inline-flex items-center gap-2.5">
       <LogoMark />
       <span className={cn("font-display text-xl font-semibold tracking-tight", compact && "sr-only sm:not-sr-only")}>
-        墨题
+        解集
       </span>
     </span>
   );

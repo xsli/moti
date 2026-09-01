@@ -300,7 +300,7 @@ function Home() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `墨题备份-${stamp}.json`;
+      a.download = `解集备份-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();

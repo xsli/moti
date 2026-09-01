@@ -114,7 +114,7 @@ ${analysis}
     .join("\n\n");
 
   return `% !TEX program = xelatex
-% 墨题试卷 · 版式参考 USTBExam / exam-zh
+% 解集试卷 · 版式参考 USTBExam / exam-zh
 \\documentclass[a4paper,11pt]{ctexart}
 \\usepackage[a4paper,inner=3.3cm,outer=2.03cm,top=2.54cm,bottom=2.54cm]{geometry}
 \\usepackage{amsmath,amssymb,amsfonts,bm}
@@ -137,7 +137,7 @@ ${analysis}
 \\begin{document}
 \\thispagestyle{fancy}
 \\begin{center}
-  {\\heiti\\LARGE 墨题\\quad ${escapeTex(options.dateLabel)}}\\\\[0.55em]
+  {\\heiti\\LARGE 解集\\quad ${escapeTex(options.dateLabel)}}\\\\[0.55em]
   {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "{\\normalsize\\color{blue}\\fbox{\\strut 解析}}" : ""}}
 \\end{center}
 \\vspace{0.6em}
@@ -182,19 +182,19 @@ ${idea}`;
     .join("\n\n");
 
   return `% !TEX program = xelatex
-% 墨题学案
+% 解集学案
 \\documentclass[a4paper,11pt]{ctexart}
 \\usepackage[a4paper,left=2.0cm,right=1.8cm,top=1.6cm,bottom=1.8cm]{geometry}
 \\usepackage{amsmath,amssymb,setspace,fancyhdr,xcolor}
 \\setstretch{1.28}
 \\pagestyle{fancy}
 \\fancyhf{}
-\\lfoot{\\small 墨题学案}
+\\lfoot{\\small 解集学案}
 \\rfoot{\\small 第\\,\\thepage\\,页}
 \\renewcommand{\\headrulewidth}{0pt}
 \\setlength{\\parindent}{0em}
 \\begin{document}
-\\noindent{\\heiti 墨题}\\quad{\\fbox{\\strut 学案}}\\hfill {\\small 我算故我在。——笛卡尔大概是这个意思}
+\\noindent{\\heiti 解集}\\hfill {\\small 我算故我在。——笛卡尔大概是这个意思}
 \\par\\vspace{0.3em}\\hrule\\vspace{0.6em}
 
 ${body}

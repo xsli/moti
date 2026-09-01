@@ -57,7 +57,7 @@ function readAll(): PaperSession {
 }
 
 function isEmpty(session: PaperSession) {
-  return !session.templates.length && !session.basket.length;
+  return !session.templates.length && !session.basket.length && !Object.keys(session.deletedTemplates).length;
 }
 
 function write(userId: string, session: PaperSession) {
@@ -76,10 +76,16 @@ function write(userId: string, session: PaperSession) {
 }
 
 function pushRemote(userId: string, session: PaperSession) {
-  if (!userId || userId === "guest" || isEmpty(session)) return;
+  if (!userId || userId === "guest") return;
   void import("./api")
     .then(({ putPaperSessionFn }) =>
-      putPaperSessionFn({ data: { basket: session.basket, templates: session.templates } }),
+      putPaperSessionFn({
+        data: {
+          basket: session.basket,
+          templates: session.templates,
+          deletedTemplates: session.deletedTemplates,
+        },
+      }),
     )
     .catch(() => {
       /* offline */
@@ -94,7 +100,7 @@ function pullRemote(userId: string, apply: (session: PaperSession) => void) {
       const remote = parseSession(raw ? JSON.parse(raw) : {});
       const merged = mergeSession(readAll(), remote);
       apply(merged);
-      if (!isEmpty(merged) && isEmpty(remote)) pushRemote(userId, merged);
+      if (JSON.stringify(merged) !== JSON.stringify(remote)) pushRemote(userId, merged);
     })
     .catch(() => {
       /* offline */
@@ -125,16 +131,26 @@ interface PaperState extends PaperSession {
 
 function applySession(userId: string, session: PaperSession, set: (partial: Partial<PaperState>) => void) {
   write(userId, session);
-  set({ userId, basket: session.basket, templates: session.templates });
+  set({
+    userId,
+    basket: session.basket,
+    templates: session.templates,
+    deletedTemplates: session.deletedTemplates,
+  });
 }
 
 export const usePaperStore = create<PaperState>()((set, get) => ({
   userId: "guest",
   basket: [],
   templates: [],
+  deletedTemplates: {},
   hydrate: (userId) => {
     const id = userId || "guest";
-    const next = mergeSession(readAll(), { basket: get().basket, templates: get().templates });
+    const next = mergeSession(readAll(), {
+      basket: get().basket,
+      templates: get().templates,
+      deletedTemplates: get().deletedTemplates,
+    });
     if (!isEmpty(next)) write(id, next);
     set({ userId: id, ...next });
     pullRemote(id, (session) => applySession(id, session, set));
@@ -163,14 +179,14 @@ export const usePaperStore = create<PaperState>()((set, get) => ({
     const id = input.id ?? crypto.randomUUID();
     const next = putTemplate(get(), { ...input, id });
     write(get().userId, next);
-    set({ templates: next.templates });
+    set({ templates: next.templates, deletedTemplates: next.deletedTemplates });
     pushRemote(get().userId, next);
     return id;
   },
   deleteTemplate: (id) => {
     const next = dropTemplate(get(), id);
     write(get().userId, next);
-    set({ templates: next.templates });
+    set({ templates: next.templates, deletedTemplates: next.deletedTemplates });
     pushRemote(get().userId, next);
   },
   renameTemplate: (id, name) => {

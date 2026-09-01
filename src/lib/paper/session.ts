@@ -17,36 +17,50 @@ export type PaperTemplate = {
 export type PaperSession = {
   basket: string[];
   templates: PaperTemplate[];
+  deletedTemplates: Record<string, number>;
 };
 
 const BASKET_MAX = 80;
 const TEMPLATE_MAX = 20;
+const DELETED_TEMPLATE_MAX = 100;
 
-export const DEFAULT_EXAM_TITLE = "墨题练习卷";
-export const DEFAULT_HANDOUT_TITLE = "墨题学案";
+export const DEFAULT_EXAM_TITLE = "解集练习卷";
+export const DEFAULT_HANDOUT_TITLE = "解集学案";
 
 export function normalizePaperTitle(raw: unknown, sheetKind: SheetKind): string {
   const title = String(raw ?? "").trim().slice(0, 40);
-  if (title === "错题练习卷") return DEFAULT_EXAM_TITLE;
-  if (title === "错题学案") return DEFAULT_HANDOUT_TITLE;
+  if (title === "错题练习卷" || title === "墨题练习卷") return DEFAULT_EXAM_TITLE;
+  if (title === "错题学案" || title === "墨题学案") return DEFAULT_HANDOUT_TITLE;
   return title || (sheetKind === "handout" ? DEFAULT_HANDOUT_TITLE : DEFAULT_EXAM_TITLE);
 }
 
 export function emptySession(): PaperSession {
-  return { basket: [], templates: [] };
+  return { basket: [], templates: [], deletedTemplates: {} };
 }
 
 export function mergeSession(primary: PaperSession, secondary: PaperSession): PaperSession {
+  const deletedTemplates = { ...primary.deletedTemplates };
+  for (const [id, deletedAt] of Object.entries(secondary.deletedTemplates)) {
+    deletedTemplates[id] = Math.max(deletedTemplates[id] ?? 0, deletedAt);
+  }
   const templates = [...primary.templates];
   for (const item of secondary.templates) {
     const index = templates.findIndex((row) => row.id === item.id);
     if (index < 0) templates.push(item);
     else if (item.updatedAt >= (templates[index]?.updatedAt ?? 0)) templates[index] = item;
   }
-  templates.sort((a, b) => b.updatedAt - a.updatedAt);
+  const liveTemplates = templates
+    .filter((item) => (deletedTemplates[item.id] ?? 0) < item.updatedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const recentDeletions = Object.fromEntries(
+    Object.entries(deletedTemplates)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, DELETED_TEMPLATE_MAX),
+  );
   return {
     basket: [...new Set([...primary.basket, ...secondary.basket])].slice(0, BASKET_MAX),
-    templates: templates.slice(0, TEMPLATE_MAX),
+    templates: liveTemplates.slice(0, TEMPLATE_MAX),
+    deletedTemplates: recentDeletions,
   };
 }
 
@@ -97,6 +111,7 @@ export function parseSession(raw: unknown): PaperSession {
       const name = String(row.name ?? "").trim().slice(0, 40);
       if (!id || !name) continue;
       const sheetKind = row.sheetKind === "handout" ? "handout" : "exam";
+      const createdAt = Number(row.createdAt) || 1;
       templates.push({
         id,
         name,
@@ -106,12 +121,24 @@ export function parseSession(raw: unknown): PaperSession {
         blankAuto: coerceBlankAuto(row.blankAuto, row.blankLines),
         sheetKind,
         rows: coerceRows(row.rows),
-        createdAt: Number(row.createdAt) || Date.now(),
-        updatedAt: Number(row.updatedAt) || Date.now(),
+        createdAt,
+        updatedAt: Number(row.updatedAt) || createdAt,
       });
     }
   }
-  return { basket, templates: templates.slice(0, TEMPLATE_MAX) };
+  const deletedTemplates: Record<string, number> = {};
+  if (data.deletedTemplates && typeof data.deletedTemplates === "object" && !Array.isArray(data.deletedTemplates)) {
+    for (const [rawId, rawDeletedAt] of Object.entries(data.deletedTemplates as Record<string, unknown>)) {
+      const id = rawId.slice(0, 80);
+      const deletedAt = Number(rawDeletedAt);
+      if (id && Number.isFinite(deletedAt) && deletedAt > 0) deletedTemplates[id] = deletedAt;
+    }
+  }
+  return mergeSession(emptySession(), {
+    basket,
+    templates: templates.slice(0, TEMPLATE_MAX),
+    deletedTemplates,
+  });
 }
 
 export function addToBasket(session: PaperSession, ids: string[]): PaperSession {
@@ -230,11 +257,16 @@ export function saveTemplate(
     existing >= 0
       ? session.templates.map((item, i) => (i === existing ? { ...payload, createdAt: item.createdAt } : item))
       : [payload, ...session.templates].slice(0, TEMPLATE_MAX);
-  return { ...session, templates };
+  const { [payload.id]: _deletedAt, ...deletedTemplates } = session.deletedTemplates;
+  return { ...session, templates, deletedTemplates };
 }
 
 export function deleteTemplate(session: PaperSession, id: string): PaperSession {
-  return { ...session, templates: session.templates.filter((item) => item.id !== id) };
+  return {
+    ...session,
+    templates: session.templates.filter((item) => item.id !== id),
+    deletedTemplates: { ...session.deletedTemplates, [id]: Date.now() },
+  };
 }
 
 export function renameTemplate(session: PaperSession, id: string, name: string): PaperSession {

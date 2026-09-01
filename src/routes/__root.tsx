@@ -7,7 +7,7 @@ import { useProblemStore } from "@/lib/problems/store";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "墨题";
+const APP_NAME = "解集";
 
 export const Route = createRootRoute({
   head: () => ({
