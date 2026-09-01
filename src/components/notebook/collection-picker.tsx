@@ -26,10 +26,12 @@ export function CollectionPicker({
   value,
   onChange,
   label = "收入",
+  showFieldLabels = true,
 }: {
   value: string;
   onChange: (id: string) => void;
   label?: string;
+  showFieldLabels?: boolean;
 }) {
   const collections = useProblemStore((s) => s.collections);
   const addCollection = useProblemStore((s) => s.addCollection);
@@ -101,7 +103,7 @@ export function CollectionPicker({
     <div className="flex flex-wrap items-center gap-2">
       {label ? <span className="text-sm text-muted-foreground">{label}</span> : null}
       <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        大组
+        {showFieldLabels ? "大组" : null}
         <select
           value={folder}
           onChange={(e) => pickFolder(e.target.value)}
@@ -118,7 +120,7 @@ export function CollectionPicker({
         </select>
       </label>
       <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        小组
+        {showFieldLabels ? "小组" : null}
         <select
           value={value}
           onChange={(e) => pickGroup(e.target.value)}

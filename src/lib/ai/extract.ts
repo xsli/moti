@@ -21,6 +21,8 @@ export interface ExtractedFigure {
   svg: string;
   caption: string;
   image?: string;
+  bbox?: ImageBBox;
+  subproblem?: number;
 }
 
 export interface ExtractedProblem {
@@ -79,10 +81,21 @@ const EXTRACT_OUTPUT_SCHEMA = {
           tags: { type: "array", items: { type: "string" }, maxItems: 8 },
           difficulty: { type: "integer", minimum: 1, maximum: 5 },
           bbox: { anyOf: [BBOX_SCHEMA, { type: "null" }] },
-          hasFigure: { type: "boolean" },
-          figureBbox: { anyOf: [BBOX_SCHEMA, { type: "null" }] },
-          figureTitle: { type: "string" },
-          figureCaption: { type: "string" },
+          figures: {
+            type: "array",
+            maxItems: 8,
+            items: {
+              type: "object",
+              properties: {
+                bbox: BBOX_SCHEMA,
+                subproblem: { type: "integer", minimum: 0, maximum: 99 },
+                title: { type: "string" },
+                caption: { type: "string" },
+              },
+              required: ["bbox", "subproblem", "title", "caption"],
+              additionalProperties: false,
+            },
+          },
           correctAnswer: { type: "string" },
           analysis: { type: "string" },
         },
@@ -94,10 +107,7 @@ const EXTRACT_OUTPUT_SCHEMA = {
           "tags",
           "difficulty",
           "bbox",
-          "hasFigure",
-          "figureBbox",
-          "figureTitle",
-          "figureCaption",
+          "figures",
           "correctAnswer",
           "analysis",
         ],
@@ -162,10 +172,11 @@ TABLES (mandatory):
 
 FIGURES:
 - Do NOT output SVG.
-- hasFigure true ONLY if there is a printed geometry figure, function graph, or chart.
-- Pure text / algebra / 填空 / 计算 without a diagram: hasFigure false, omit figureBbox, figures [].
-- Do NOT treat answer keys, QR codes, watermarks, or Chinese stem text as a figure.
-- figureBbox: fractions 0–1 of the source photo, tightly around ONLY the diagram and vertex labels. Typically a corner, never the whole problem.
+- figures contains every printed geometry figure, number line, function graph, or chart. Use [] when there is no diagram.
+- Each figure bbox is fractions 0–1 of the source photo and tightly surrounds ONLY that one diagram and its labels.
+- If separate sub-questions each have a figure, return one bbox per figure. NEVER combine separated figures into one large bbox.
+- subproblem is the inner label number the figure belongs to: 1 for (1), 2 for (2), etc. Use 0 only when it belongs to the whole problem.
+- Do NOT treat answer keys, QR codes, watermarks, Chinese stem text, or tables transcribed as LaTeX as figures.
 
 ANSWER (mandatory):
 - ${answerRule}
@@ -179,14 +190,13 @@ Each problem object:
   "tags": ["tag1","tag2"],
   "difficulty": 1-5,
   "bbox": {"x":0,"y":0,"w":1,"h":1},
-  "hasFigure": true,
-  "figureBbox": {"x":0,"y":0,"w":1,"h":1},
-  "figureTitle": "图形",
-  "figureCaption": "",
+  "figures": [
+    {"bbox":{"x":0,"y":0,"w":1,"h":1},"subproblem":1,"title":"图形","caption":""}
+  ],
   ${answerFields}
 }
 
-bbox is the crop of THAT problem (stem + its figure) inside its source photo. Include generous margin on TOP, LEFT, RIGHT, and BELOW — especially if a diagram sits above the stem. Never cut off the top of a figure, side labels, the last sentence, or the bottom of a figure. figureBbox is only the diagram.
+bbox is the crop of THAT problem (stem + its figures) inside its source photo. Include generous margin on TOP, LEFT, RIGHT, and BELOW — especially if a diagram sits above the stem. Never cut off the top of a figure, side labels, the last sentence, or the bottom of a figure. Each figures[].bbox is only one diagram.
 Return ONLY JSON: {"problems":[ ... ]}
 `;
 }
@@ -217,11 +227,26 @@ function stripItemNumber(text: string): string {
 function normalizeExtracted(raw: unknown): ExtractedProblem {
   const obj = (raw ?? {}) as Record<string, unknown>;
   const figures: ExtractedFigure[] = [];
-  if (obj.hasFigure === true) {
+  if (Array.isArray(obj.figures)) {
+    for (const rawFigure of obj.figures.slice(0, 8)) {
+      const figure = (rawFigure ?? {}) as Record<string, unknown>;
+      const bbox = normalizeBBox(figure.bbox);
+      if (!bbox) continue;
+      const subproblem = Math.max(0, Math.min(99, Math.round(Number(figure.subproblem) || 0)));
+      figures.push({
+        title: String(figure.title ?? "图形").slice(0, 80),
+        svg: "",
+        caption: String(figure.caption ?? "").slice(0, 200),
+        bbox,
+        subproblem: subproblem || undefined,
+      });
+    }
+  } else if (obj.hasFigure === true) {
     figures.push({
       title: String(obj.figureTitle ?? "图形").slice(0, 80),
       svg: "",
       caption: String(obj.figureCaption ?? "").slice(0, 200),
+      bbox: normalizeBBox(obj.figureBbox),
     });
   }
   const reason = String(obj.errorReason ?? "unknown");
@@ -383,14 +408,14 @@ async function runCodexExtract(
   const withAnswer = Boolean(data.withAnswer);
   const userTextParts: string[] = [];
   if (mode === "redraw") {
-    userTextParts.push("只标出这一道题的图形位置。hasFigure true，给出 figureBbox。不要输出 SVG。返回 {\"problems\":[这一道]}。");
+    userTextParts.push("只标出这一道题的所有图形位置，分别写入 figures；分属小题的图必须填写对应 subproblem，不能合并框选。不要输出 SVG。返回 {\"problems\":[这一道]}。");
   } else if (withAnswer) {
     userTextParts.push(
-      "请识别图中的数学题。多道必须拆开。有图则 hasFigure true 并给出 figureBbox（只框图形）。不要输出 SVG。sourceIndex 为 0。同时给出正确答案和解析。",
+      "请识别图中的数学题。多道必须拆开。所有图形分别写入 figures，每张只框一幅图，并填写所属 subproblem。不要输出 SVG。sourceIndex 为 0。同时给出正确答案和解析。",
     );
   } else {
     userTextParts.push(
-      "请识别图中的数学题。多道必须拆开。有图则 hasFigure true 并给出 figureBbox（只框图形）。不要输出 SVG。sourceIndex 为 0。不要解题，correctAnswer 和 analysis 必须为空字符串。",
+      "请识别图中的数学题。多道必须拆开。所有图形分别写入 figures，每张只框一幅图，并填写所属 subproblem。不要输出 SVG。sourceIndex 为 0。不要解题，correctAnswer 和 analysis 必须为空字符串。",
     );
   }
   if (data.text) userTextParts.push(`补充或文字题目：\n${data.text}`);

@@ -38,16 +38,17 @@ import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Subject } fr
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
-  validateSearch: (search: Record<string, unknown>): { ids: string; tpl: string; title?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { ids: string; tpl: string; title?: string; sheet?: SheetKind } => ({
     ids: typeof search.ids === "string" ? search.ids : "",
     tpl: typeof search.tpl === "string" ? search.tpl : "",
     ...(typeof search.title === "string" && search.title.trim() ? { title: search.title } : {}),
+    ...(search.sheet === "exam" || search.sheet === "handout" ? { sheet: search.sheet } : {}),
   }),
   component: PaperPage,
 });
 
 function PaperPage() {
-  const { ids, tpl, title: initialTitle } = Route.useSearch();
+  const { ids, tpl, title: initialTitle, sheet: initialSheetKind } = Route.useSearch();
   const navigate = useNavigate();
   const problems = useProblemStore((s) => s.problems);
   const loadProblem = useProblemStore((s) => s.loadProblem);
@@ -88,14 +89,20 @@ function PaperPage() {
       setStep("arrange");
       return;
     }
-    setRows(rowsFromIds(selectedIds));
-    setTitle(normalizePaperTitle(initialTitle, "exam"));
+    const nextSheetKind: SheetKind = initialSheetKind === "handout" ? "handout" : "exam";
+    const nextRows = rowsFromIds(selectedIds);
+    setRows(
+      nextSheetKind === "handout"
+        ? [{ kind: "heading", id: crypto.randomUUID(), title: "\u7ec3\u4e60", perScore: 0, blankLines: 6 }, ...nextRows]
+        : nextRows,
+    );
+    setTitle(normalizePaperTitle(initialTitle, nextSheetKind));
     setWithAnswers(false);
     setBlankLines(DEFAULT_BLANK_LINES);
     setBlankAuto(false);
-    setSheetKind("exam");
+    setSheetKind(nextSheetKind);
     setStep("arrange");
-  }, [idsKey, tpl, tplStamp, selectedIds, initialTitle]);
+  }, [idsKey, tpl, tplStamp, selectedIds, initialTitle, initialSheetKind]);
 
   if (!selectedIds.length) {
     return <PaperPicker />;

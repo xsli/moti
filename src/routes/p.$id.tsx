@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, LoaderCircle, Pencil, Sparkles, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -18,17 +18,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { solveProblem } from "@/lib/ai/extract";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { cropDataUrl } from "@/lib/image/compress";
 import { formatLoggedDateLong } from "@/lib/problems/dates";
 import { usePaperStore } from "@/lib/paper/store";
 import { MathText } from "@/lib/problems/math-text";
+import { splitStemSections, stemSubproblemNumbers } from "@/lib/problems/subproblems";
 import { useProblemStore } from "@/lib/problems/store";
 import {
   MASTERY_LABEL,
+  MASTERY_DESCRIPTION,
   SUBJECT_LABEL,
   type Mastery,
+  type Figure,
   type Problem,
 } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
@@ -73,22 +77,32 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
   const addToBasket = usePaperStore((s) => s.addToBasket);
-  const problems = useProblemStore((s) => s.problems);
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of problems) for (const tag of item.tags) set.add(tag);
-    return [...set];
-  }, [problems]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notes, setNotes] = useState<string | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [cropBox, setCropBox] = useState<ImageBBox>({ x: 0.38, y: 0.26, w: 0.58, h: 0.6 });
   const cropBoxRef = useRef(cropBox);
+  const [cropAnchor, setCropAnchor] = useState(0);
+  const [cropReplaceId, setCropReplaceId] = useState<string | null>(null);
   const [cropping, setCropping] = useState(false);
   const [solving, setSolving] = useState(false);
   const noteValue = notes ?? problem.notes;
   const hasAnswer = Boolean(problem.correctAnswer.trim());
   const parentGroupId = problem.collectionId || "ungrouped";
+  const subproblemNumbers = useMemo(() => stemSubproblemNumbers(problem.stem), [problem.stem]);
+
+  function openCrop(figure?: Figure) {
+    const box = { x: 0.38, y: 0.26, w: 0.58, h: 0.6 };
+    cropBoxRef.current = box;
+    setCropBox(box);
+    setCropAnchor(figure?.subproblem ?? subproblemNumbers[0] ?? 0);
+    setCropReplaceId(figure?.id ?? null);
+    setCropOpen(true);
+  }
+
+  async function removeFigure(id: string) {
+    await updateProblem(problem.id, { figures: problem.figures.filter((figure) => figure.id !== id) });
+  }
 
   async function askGrok() {
     if (!problem.stem.trim()) {
@@ -124,20 +138,22 @@ function ProblemDetail({ problem }: { problem: Problem }) {
     setCropping(true);
     try {
       const cropped = await cropDataUrl(problem.sourceImage, cropBoxRef.current, 0);
-      const current = problem.figures[0];
+      const current = cropReplaceId ? problem.figures.find((figure) => figure.id === cropReplaceId) : undefined;
+      const nextFigure: Figure = {
+        id: current?.id ?? crypto.randomUUID(),
+        title: current?.title ?? "图形",
+        caption: current?.caption ?? "",
+        svg: "",
+        image: cropped,
+        subproblem: cropAnchor || undefined,
+      };
       await updateProblem(problem.id, {
-        figures: [
-          {
-            id: current?.id ?? crypto.randomUUID(),
-            title: current?.title ?? "图形",
-            caption: current?.caption ?? "",
-            svg: "",
-            image: cropped,
-          },
-        ],
+        figures: current
+          ? problem.figures.map((figure) => (figure.id === current.id ? nextFigure : figure))
+          : [...problem.figures, nextFigure],
       });
       setCropOpen(false);
-      toast.success("已用框选原图");
+      toast.success(cropAnchor ? `图形已跟随小题（${cropAnchor}）` : "图形已放在整题后");
     } finally {
       setCropping(false);
     }
@@ -173,106 +189,121 @@ function ProblemDetail({ problem }: { problem: Problem }) {
       <article className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap items-center gap-2 px-5 pt-5 sm:px-6">
           <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
-          <Badge variant={problem.mastery === "mastered" ? "mastered" : "outline"}>
-            {MASTERY_LABEL[problem.mastery]}
-          </Badge>
+          <div className="ml-1 flex items-center gap-0.5" aria-label={`难度 ${problem.difficulty} 级`}>
+            <span className="mr-1 text-xs text-muted-foreground">难度</span>
+            {([1, 2, 3, 4, 5] as const).map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={cn(
+                  "grid size-5 place-items-center transition-colors",
+                  level <= problem.difficulty ? "text-primary" : "text-border hover:text-muted-foreground",
+                )}
+                aria-label={`设为 ${level} 级难度`}
+                title={`${level} 级难度`}
+                onClick={() => void updateProblem(problem.id, { difficulty: level })}
+              >
+                <Star className={cn("size-3.5", level <= problem.difficulty && "fill-current")} />
+              </button>
+            ))}
+          </div>
+          <select
+            value={problem.mastery}
+            onChange={(event) => void updateProblem(problem.id, { mastery: event.target.value as Mastery })}
+            className={cn(
+              "h-7 rounded-full border px-2.5 text-xs outline-none transition-colors focus:ring-2 focus:ring-ring/30",
+              problem.mastery === "mastered"
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border bg-surface text-muted-foreground",
+            )}
+            aria-label="修改掌握程度"
+            title={MASTERY_DESCRIPTION[problem.mastery]}
+          >
+            {(["new", "reviewing", "mastered"] as Mastery[]).map((mastery) => (
+              <option key={mastery} value={mastery}>{MASTERY_LABEL[mastery]}</option>
+            ))}
+          </select>
         </div>
         <div className="px-5 py-5 sm:px-6">
           <EditableTitle
             value={problem.title}
             onSave={(title) => void updateProblem(problem.id, { title })}
           />
-          <p className="mt-2 text-sm text-muted-foreground">录入 {formatLoggedDateLong(problem.createdAt)}</p>
-          <div className="mt-4">
-            <CollectionPicker
-              value={problem.collectionId ?? ""}
-              onChange={(id) => void updateProblem(problem.id, { collectionId: id || undefined })}
-            />
-          </div>
+          <p className="mt-2 text-sm text-muted-foreground">{formatLoggedDateLong(problem.createdAt)}</p>
           <div className="mt-4">
             <EditableMath
               value={problem.stem}
               placeholder="题干"
               previewClass="text-lg"
               tall
+              header={
+                <CollectionPicker
+                  value={problem.collectionId ?? ""}
+                  onChange={(id) => void updateProblem(problem.id, { collectionId: id || undefined })}
+                  label=""
+                  showFieldLabels={false}
+                />
+              }
               onSave={(stem) => void updateProblem(problem.id, { stem })}
+              renderPreview={(stem) => (
+                <StemWithFigures
+                  stem={stem}
+                  figures={problem.figures}
+                  onRecrop={openCrop}
+                  onRemove={(figure) => void removeFigure(figure.id)}
+                />
+              )}
             />
           </div>
           <div className="mt-5">
-            <p className="mb-2 text-xs tracking-wider text-muted-foreground">标签</p>
             <TagEditor
               tags={problem.tags}
-              suggestions={allTags}
               onChange={(tags) => void updateProblem(problem.id, { tags })}
             />
           </div>
         </div>
-        {problem.figures.map((fig) => (
-          <div key={fig.id} className="border-t border-border">
-            <FigureFrame svg={fig.svg} image={fig.image} caption={fig.caption || fig.title} />
-          </div>
-        ))}
+        {problem.figures
+          .filter((figure) => !figure.subproblem || !subproblemNumbers.includes(figure.subproblem))
+          .map((figure) => (
+            <FigureWithActions key={figure.id} figure={figure} onRecrop={openCrop} onRemove={(item) => void removeFigure(item.id)} />
+          ))}
         {problem.sourceImage ? (
           <div className="flex justify-end border-t border-border px-5 py-3">
-            <Button variant="ghost" size="sm" onClick={() => setCropOpen(true)}>
+            <Button variant="ghost" size="sm" onClick={() => openCrop()}>
               <Scissors className="size-4" />
-              框选图形
+              添加图形
             </Button>
           </div>
         ) : null}
       </article>
 
-      <Panel
-        title="答案"
-        action={
-          !hasAnswer ? (
+      <Panel>
+        <EditableMath
+          value={problem.correctAnswer}
+          placeholder="正确答案"
+          header={<FieldHeading emphasized>答案</FieldHeading>}
+          headerAction={
+            !hasAnswer ? (
             <Button size="sm" variant="outline" onClick={() => void askGrok()} disabled={solving}>
               {solving ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
               {solving ? "正在解答…" : "AI 解答"}
             </Button>
-          ) : null
-        }
-      >
-        {solving && !hasAnswer ? (
-          <p className="text-sm text-muted-foreground">Grok 正在做这道题…</p>
-        ) : (
-          <EditableMath
-            value={problem.correctAnswer}
-            placeholder="正确答案"
-            onSave={(correctAnswer) => void updateProblem(problem.id, { correctAnswer })}
-          />
-        )}
+            ) : null
+          }
+          emptyText={solving ? "正在生成答案…" : undefined}
+          onSave={(correctAnswer) => void updateProblem(problem.id, { correctAnswer })}
+        />
       </Panel>
 
-      <Panel title="解析">
-        {solving && !problem.analysis.trim() ? (
-          <p className="text-sm text-muted-foreground">解析生成后会出现在这里。</p>
-        ) : (
-          <EditableMath
-            value={problem.analysis}
-            placeholder="解析"
-            tall
-            onSave={(analysis) => void updateProblem(problem.id, { analysis })}
-          />
-        )}
-      </Panel>
-
-      <Panel title="掌握程度">
-        <div className="flex flex-wrap gap-2">
-          {(["new", "reviewing", "mastered"] as Mastery[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => void updateProblem(problem.id, { mastery: m })}
-              className={cn(
-                "h-10 rounded-full px-4 text-sm transition-colors",
-                problem.mastery === m ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground",
-              )}
-            >
-              {MASTERY_LABEL[m]}
-            </button>
-          ))}
-        </div>
+      <Panel>
+        <EditableMath
+          value={problem.analysis}
+          placeholder="解析"
+          header={<FieldHeading emphasized>解析</FieldHeading>}
+          emptyText={solving ? "正在生成解析…" : undefined}
+          tall
+          onSave={(analysis) => void updateProblem(problem.id, { analysis })}
+        />
       </Panel>
 
       <Panel title="笔记">
@@ -292,8 +323,20 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>框选图形</DialogTitle>
-            <DialogDescription>只圈图形，用这块原图。</DialogDescription>
+            <DialogDescription>一幅图框一次，并选择它跟随哪一道小题。</DialogDescription>
           </DialogHeader>
+          <div className="flex items-center gap-2">
+            <label htmlFor="detail-figure-anchor" className="text-sm font-medium">跟随位置</label>
+            <select
+              id="detail-figure-anchor"
+              className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
+              value={cropAnchor}
+              onChange={(event) => setCropAnchor(Number(event.target.value))}
+            >
+              <option value={0}>整题后</option>
+              {subproblemNumbers.map((number) => <option key={number} value={number}>小题（{number}）后</option>)}
+            </select>
+          </div>
           {problem.sourceImage ? (
             <CropEditor
               src={problem.sourceImage}
@@ -348,18 +391,29 @@ function Panel({
   action,
   children,
 }: {
-  title: string;
+  title?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
+  const hasHeader = Boolean(title || action);
   return (
     <section className="rounded-xl bg-surface p-5 shadow-[var(--shadow-border)]">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-medium tracking-wider text-muted-foreground">{title}</h2>
-        {action}
-      </div>
-      <div className="mt-3">{children}</div>
+      {hasHeader ? (
+        <div className="flex items-center justify-between gap-3">
+          {title ? <FieldHeading>{title}</FieldHeading> : <span />}
+          {action}
+        </div>
+      ) : null}
+      <div className={hasHeader ? "mt-3" : undefined}>{children}</div>
     </section>
+  );
+}
+
+function FieldHeading({ children, emphasized = false }: { children: ReactNode; emphasized?: boolean }) {
+  return (
+    <h2 className={cn(emphasized ? "text-base font-semibold text-fg" : "text-xs font-medium tracking-wider text-muted-foreground")}>
+      {children}
+    </h2>
   );
 }
 
@@ -376,14 +430,19 @@ function EditToggle({
 }) {
   if (!editing) {
     return (
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-fg"
-        onClick={onEdit}
-      >
-        <Pencil className="size-3" />
-        修改
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-rule hover:text-fg"
+            aria-label="修改"
+            onClick={onEdit}
+          >
+            <Pencil className="size-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>修改</TooltipContent>
+      </Tooltip>
     );
   }
   return (
@@ -428,7 +487,7 @@ function EditableTitle({ value, onSave }: { value: string; onSave: (next: string
           autoFocus
         />
       ) : (
-        <h1 className="min-w-0 flex-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{value}</h1>
+        <h1 className="min-w-0 flex-1 font-display text-xl font-semibold tracking-tight sm:text-2xl">{value}</h1>
       )}
       <EditToggle
         editing={editing}
@@ -443,18 +502,82 @@ function EditableTitle({ value, onSave }: { value: string; onSave: (next: string
   );
 }
 
+function FigureWithActions({
+  figure,
+  onRecrop,
+  onRemove,
+}: {
+  figure: Figure;
+  onRecrop: (figure: Figure) => void;
+  onRemove: (figure: Figure) => void;
+}) {
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
+      <FigureFrame svg={figure.svg} image={figure.image} caption={figure.caption || figure.title} />
+      <div className="flex justify-end gap-1 border-t border-border px-2 py-1.5">
+        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onRecrop(figure)}>
+          <Scissors className="size-3.5" />
+          重新框选
+        </Button>
+        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive" onClick={() => onRemove(figure)}>
+          <Trash2 className="size-3.5" />
+          删除图形
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function StemWithFigures({
+  stem,
+  figures,
+  onRecrop,
+  onRemove,
+}: {
+  stem: string;
+  figures: Figure[];
+  onRecrop: (figure: Figure) => void;
+  onRemove: (figure: Figure) => void;
+}) {
+  const sections = splitStemSections(stem);
+  return (
+    <div className="space-y-3">
+      {sections.map((section, index) => (
+        <div key={`${section.subproblem}-${index}`}>
+          <MathText text={section.text} className="text-lg" />
+          {section.subproblem > 0
+            ? figures
+                .filter((figure) => figure.subproblem === section.subproblem)
+                .map((figure) => (
+                  <FigureWithActions key={figure.id} figure={figure} onRecrop={onRecrop} onRemove={onRemove} />
+                ))
+            : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EditableMath({
   value,
   onSave,
   placeholder,
   tall,
   previewClass,
+  renderPreview,
+  header,
+  headerAction,
+  emptyText = "（未填写）",
 }: {
   value: string;
   onSave: (next: string) => void;
   placeholder: string;
   tall?: boolean;
   previewClass?: string;
+  renderPreview?: (value: string) => ReactNode;
+  header?: ReactNode;
+  headerAction?: ReactNode;
+  emptyText?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -467,21 +590,27 @@ function EditableMath({
     if (draft !== value) onSave(draft);
   }
 
+  function cancel() {
+    setDraft(value);
+    setEditing(false);
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex justify-end">
-        <EditToggle
-          editing={editing}
-          onEdit={() => setEditing(true)}
-          onSave={save}
-          onCancel={() => {
-            setDraft(value);
-            setEditing(false);
-          }}
-        />
-      </div>
+      {header ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">{header}</div>
+          <div className="flex shrink-0 items-center gap-2">
+            {headerAction}
+            <EditToggle editing={editing} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+          </div>
+        </div>
+      ) : null}
       {editing ? (
         <>
+          {!header ? <div className="flex justify-end">
+            <EditToggle editing onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+          </div> : null}
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -492,16 +621,31 @@ function EditableMath({
           <div className="rounded-md bg-secondary/60 px-3 py-3">
             <p className="mb-2 text-[11px] tracking-wider text-muted-foreground">预览</p>
             {draft.trim() ? (
-              <MathText text={draft} className={previewClass} />
+              renderPreview ? renderPreview(draft) : <MathText text={draft} className={previewClass} />
             ) : (
               <p className="text-sm text-muted-foreground">（空）</p>
             )}
           </div>
         </>
-      ) : value.trim() ? (
-        <MathText text={value} className={previewClass} />
+      ) : header ? (
+        <div className="min-w-0">
+          {value.trim() ? (
+            renderPreview ? renderPreview(value) : <MathText text={value} className={previewClass} />
+          ) : (
+            <p className="text-sm text-muted-foreground">{emptyText}</p>
+          )}
+        </div>
       ) : (
-        <p className="text-sm text-muted-foreground">（未填写）</p>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+          <div className="min-w-0">
+            {value.trim() ? (
+              renderPreview ? renderPreview(value) : <MathText text={value} className={previewClass} />
+            ) : (
+              <p className="text-sm text-muted-foreground">{emptyText}</p>
+            )}
+          </div>
+          <EditToggle editing={false} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+        </div>
       )}
     </div>
   );

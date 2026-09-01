@@ -14,7 +14,7 @@
     "preview": "node scripts/run-vite.mjs preview",
     "start": "node scripts/start-local.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/paper/session.test.ts src/lib/problems/collections.test.ts src/lib/problems/tags.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/paper/session.test.ts src/lib/problems/collections.test.ts src/lib/problems/tags.test.ts src/lib/problems/subproblems.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

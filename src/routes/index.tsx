@@ -3,7 +3,7 @@ import { ArrowLeft, Camera, Download, FolderOpen, GripVertical, LayoutGrid, List
 import { type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
-import { DateMenu, FilterMenu } from "@/components/notebook/filter-menu";
+import { DateMenu, DifficultyMenu, FilterMenu } from "@/components/notebook/filter-menu";
 import { SortableProblems } from "@/components/notebook/sortable-problems";
 import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { TagFilter } from "@/components/notebook/tag-filter";
@@ -82,6 +82,7 @@ function Home() {
   const [dateDay, setDateDay] = useState("");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [masteryFilter, setMasteryFilter] = useState<MasteryFilter>("all");
+  const [difficultyFilter, setDifficultyFilter] = useState<number[]>([]);
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -106,12 +107,24 @@ function Home() {
   useEffect(() => {
     setTagFilter([]);
     setMasteryFilter("all");
+    setDifficultyFilter([]);
+    setSelecting(false);
+    setSelected(new Set());
   }, [g]);
 
   const dueCount = useMemo(() => selectDueProblems(problems).length, [problems]);
-  const masteredCount = useMemo(
-    () => problems.filter((p) => p.mastery === "mastered").length,
-    [problems],
+  const overviewProblems = useMemo(() => {
+    if (!g || g === "all") return problems;
+    if (g === "ungrouped") return problems.filter((problem) => !problem.collectionId);
+    return problems.filter((problem) => problem.collectionId === g);
+  }, [g, problems]);
+  const overviewDueCount = useMemo(
+    () => selectDueProblems(overviewProblems).length,
+    [overviewProblems],
+  );
+  const overviewMasteredCount = useMemo(
+    () => overviewProblems.filter((problem) => problem.mastery === "mastered").length,
+    [overviewProblems],
   );
 
   const visible = useMemo(() => {
@@ -126,6 +139,7 @@ function Home() {
       }
       if (!matchesAllTags(p.tags, tagFilter)) return false;
       if (masteryFilter !== "all" && p.mastery !== masteryFilter) return false;
+      if (difficultyFilter.length && !difficultyFilter.includes(p.difficulty)) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
       if (!q) return true;
       const hay = `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase();
@@ -133,7 +147,7 @@ function Home() {
     });
     if (g && g !== "all") return sortBySourceOrder(list);
     return list;
-  }, [problems, filter, tagFilter, masteryFilter, query, dateFilter, dateDay, g]);
+  }, [problems, filter, tagFilter, masteryFilter, difficultyFilter, query, dateFilter, dateDay, g]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -143,7 +157,7 @@ function Home() {
 
   const chips: { id: Filter; label: string }[] = [
     { id: "all", label: "全部" },
-    { id: "due", label: `待复习 ${dueCount}` },
+    { id: "due", label: `待复习 ${overviewDueCount}` },
     ...SUBJECTS.map((s) => ({ id: s as Filter, label: SUBJECT_LABEL[s] })),
   ];
   const masteryOptions: { id: MasteryFilter; label: string }[] = [
@@ -353,9 +367,9 @@ function Home() {
           </div>
         </div>
         <div className="flex flex-wrap items-baseline gap-4">
-          <Stat label="收录" value={problems.length} />
-          <Stat label="待复习" value={dueCount} />
-          <Stat label="已掌握" value={masteredCount} />
+          <Stat label="收录" value={overviewProblems.length} />
+          <Stat label="待复习" value={overviewDueCount} />
+          <Stat label="已掌握" value={overviewMasteredCount} />
         </div>
       </section>
 
@@ -417,6 +431,7 @@ function Home() {
                       ).join(","),
                       tpl: "",
                       title: currentCol.name,
+                      sheet: currentCol.kind === "exam" ? "exam" : "handout",
                     },
                   })
                 }
@@ -603,6 +618,7 @@ function Home() {
             options={masteryOptions}
             onChange={setMasteryFilter}
           />
+          <DifficultyMenu value={difficultyFilter} onChange={setDifficultyFilter} />
           <DateMenu
             value={dateFilter}
             day={dateDay}
@@ -1054,7 +1070,10 @@ function CollectionGrid({
   return (
     <div ref={gridRef} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((item, index) => {
-        const count = problems.filter((problem) => problem.collectionId === item.id).length;
+        const groupProblems = problems.filter((problem) => problem.collectionId === item.id);
+        const count = groupProblems.length;
+        const mastered = groupProblems.filter((problem) => problem.mastery === "mastered").length;
+        const masteryPercent = count ? Math.round((mastered / count) * 100) : 0;
         const recent = latest(item.id);
         return (
           <div
@@ -1072,6 +1091,18 @@ function CollectionGrid({
                 {count} 道 · 待复习 {dueOf(item.id)}
                 {recent ? ` · ${formatLoggedDate(recent.createdAt)}` : ""}
               </p>
+              <div className="mt-3">
+                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>掌握比例</span>
+                  <span className="tabular-nums">{mastered}/{count} · {masteryPercent}%</span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-rule">
+                  <div
+                    className="h-full rounded-full bg-mastered transition-[width]"
+                    style={{ width: `${masteryPercent}%` }}
+                  />
+                </div>
+              </div>
               {recent ? (
                 <p className="mt-2 truncate text-sm text-fg/80">{recent.title}</p>
               ) : (

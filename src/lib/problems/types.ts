@@ -44,8 +44,14 @@ export type Mastery = "new" | "reviewing" | "mastered";
 
 export const MASTERY_LABEL: Record<Mastery, string> = {
   new: "未掌握",
-  reviewing: "复习中",
+  reviewing: "巩固中",
   mastered: "已掌握",
+};
+
+export const MASTERY_DESCRIPTION: Record<Mastery, string> = {
+  new: "尚未记住，当前仍会进入待复习队列",
+  reviewing: "正在间隔巩固，累计记住 3 次后自动变为已掌握",
+  mastered: "已经掌握，不再进入普通待复习队列",
 };
 
 export type SourceKind = "photo" | "text" | "sample";
@@ -56,6 +62,7 @@ export interface Figure {
   svg: string;
   caption: string;
   image?: string;
+  subproblem?: number;
 }
 
 export interface Problem {

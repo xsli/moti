@@ -8,6 +8,7 @@ import {
   type BlankLines,
 } from "@/lib/paper/space";
 import { MathText, splitMathPieces } from "@/lib/problems/math-text";
+import { splitStemSections } from "@/lib/problems/subproblems";
 import type { Problem } from "@/lib/problems/types";
 
 const EXAM_CSS = `
@@ -570,22 +571,38 @@ function QuestionBlock({
   const useSizer = blankAuto && hasWrittenAnswer(problem);
   const mark = <span className="exam-no">{label || `${index + 1}.`}</span>;
   const figures = problem.figures.filter((fig) => fig.image || fig.svg);
+  const stemSections = splitStemSections(problem.stem);
+  const stemSubproblems = new Set(stemSections.map((section) => section.subproblem).filter(Boolean));
+  const looseFigures = figures.filter((figure) => !figure.subproblem || !stemSubproblems.has(figure.subproblem));
   const showLines = sheetKind === "handout" && role !== "points" && !withAnswers;
 
   return (
     <section className="exam-q">
-      <p className="exam-stem">
-        {mark}
-        <MathText text={problem.stem} inline />
-      </p>
+      {stemSections.map((section, sectionIndex) => (
+        <div key={`${section.subproblem}-${sectionIndex}`}>
+          <p className="exam-stem">
+            {sectionIndex === 0 ? mark : null}
+            <MathText text={section.text} inline />
+          </p>
+          {section.subproblem > 0
+            ? figures
+                .filter((figure) => figure.subproblem === section.subproblem)
+                .map((figure) => (
+                  <div key={figure.id} className="exam-figure">
+                    {figure.image ? <img src={figure.image} alt="" /> : <div dangerouslySetInnerHTML={{ __html: figure.svg }} />}
+                  </div>
+                ))
+            : null}
+        </div>
+      ))}
       {sheetKind === "exam"
-        ? figures.map((fig) => (
+        ? looseFigures.map((fig) => (
             <div key={fig.id} className="exam-figure">
               {fig.image ? <img src={fig.image} alt="" /> : <div dangerouslySetInnerHTML={{ __html: fig.svg }} />}
             </div>
           ))
         : null}
-      <div className={figures.length && sheetKind === "handout" ? "hn-row" : undefined}>
+      <div className={looseFigures.length && sheetKind === "handout" ? "hn-row" : undefined}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {showLines ? (useSizer ? <AutoWriteLines problem={problem} /> : <WriteLines n={blankLines} />) : null}
           {sheetKind === "exam" && blank ? (
@@ -601,7 +618,7 @@ function QuestionBlock({
           ) : null}
         </div>
         {sheetKind === "handout"
-          ? figures.map((fig) => (
+          ? looseFigures.map((fig) => (
               <div key={fig.id} className="exam-figure">
                 {fig.image ? <img src={fig.image} alt="" /> : <div dangerouslySetInnerHTML={{ __html: fig.svg }} />}
               </div>

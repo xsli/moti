@@ -122,6 +122,10 @@ function parseFigures(raw: string): Figure[] {
         svg: svg ?? "",
         caption: String(fig.caption ?? "").slice(0, 200),
         image,
+        subproblem: (() => {
+          const n = Math.round(Number(fig.subproblem) || 0);
+          return n > 0 && n <= 99 ? n : undefined;
+        })(),
       });
     }
     return figures.slice(0, 8);

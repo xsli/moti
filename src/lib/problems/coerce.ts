@@ -27,6 +27,10 @@ function asFigures(value: unknown): Figure[] {
       svg: (svgRaw ?? "").slice(0, 200_000),
       caption: asString(fig.caption).slice(0, 200),
       image,
+      subproblem: (() => {
+        const n = Math.round(asNumber(fig.subproblem));
+        return n > 0 && n <= 99 ? n : undefined;
+      })(),
     });
   }
   return figures.slice(0, 8);

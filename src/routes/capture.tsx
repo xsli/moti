@@ -18,6 +18,7 @@ import {
   pollExtractJob,
   stashExtractImage,
   startExtractJob,
+  type ExtractedFigure,
   type ExtractedProblem,
 } from "@/lib/ai/extract";
 import {
@@ -29,6 +30,7 @@ import {
 import { cropDataUrl, dataUrlForGrok, fileToDataUrl } from "@/lib/image/compress";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { MathText } from "@/lib/problems/math-text";
+import { stemSubproblemNumbers } from "@/lib/problems/subproblems";
 import { useProblemStore } from "@/lib/problems/store";
 import { applyTagChanges } from "@/lib/problems/tags";
 import {
@@ -64,6 +66,20 @@ type DraftItem = ExtractedProblem & {
 function defaultCropBox(hint?: ImageBBox): ImageBBox {
   if (hint && hint.w * hint.h <= 0.6) return hint;
   return { x: 0.38, y: 0.26, w: 0.58, h: 0.6 };
+}
+
+async function materializeFigures(photo: string | undefined, figures: ExtractedFigure[]): Promise<ExtractedFigure[]> {
+  if (!photo) return figures.map((figure) => ({ ...figure, svg: "", image: undefined }));
+  return Promise.all(
+    figures.map(async (figure) => {
+      if (!figure.bbox) return { ...figure, svg: "" };
+      try {
+        return { ...figure, svg: "", image: await cropDataUrl(photo, figure.bbox, 0) };
+      } catch {
+        return { ...figure, svg: "", image: undefined };
+      }
+    }),
+  );
 }
 
 function waitForJob(
@@ -205,7 +221,7 @@ function CapturePage() {
       collected.push({
         ...item,
         sourceImage,
-        figures: item.figures.map((fig) => ({ ...fig, svg: "", image: undefined })),
+        figures: await materializeFigures(photo, item.figures),
       });
     }
     if (!collected.length) {
@@ -432,8 +448,12 @@ function CapturePage() {
       title: item.title,
       stem: item.stem,
       figures: item.figures.map((fig) => ({
-        ...fig,
         id: crypto.randomUUID(),
+        title: fig.title,
+        svg: fig.svg,
+        caption: fig.caption,
+        image: fig.image,
+        subproblem: fig.subproblem,
       })),
       subject: item.subject,
       tags: item.tags,
@@ -567,6 +587,7 @@ function CapturePage() {
         setStage("review");
         return;
       }
+      const nextFigures = await materializeFigures(current.sourceImage, next.figures);
       setDrafts((prev) =>
         prev.map((item, i) =>
           i === index
@@ -576,7 +597,7 @@ function CapturePage() {
                 bbox: current.bbox,
                 sourceBatchId: current.sourceBatchId,
                 sourceOrder: current.sourceOrder,
-                figures: next.figures.map((fig) => ({ ...fig, svg: "", image: undefined })),
+                figures: nextFigures,
               }
             : item,
         ),
@@ -797,22 +818,61 @@ function ReviewForm({
   busy: boolean;
 }) {
   const figureCount = draft.figures.length;
+  const subproblemNumbers = useMemo(() => stemSubproblemNumbers(draft.stem), [draft.stem]);
   const difficultyDots = useMemo(() => [1, 2, 3, 4, 5] as const, []);
   const [needCrop, setNeedCrop] = useState(figureCount > 0);
   const [showSourceImage, setShowSourceImage] = useState(true);
+  const [activeFigureIndex, setActiveFigureIndex] = useState(0);
+  const [cropBox, setCropBox] = useState(() => defaultCropBox());
+  const [cropAnchor, setCropAnchor] = useState(() => draft.figures[0]?.subproblem ?? subproblemNumbers[0] ?? 0);
   const tagEditorRef = useRef<TagEditorHandle>(null);
-  const cropBox = draft.figureBbox ?? defaultCropBox();
+
+  function selectFigure(index: number) {
+    const figure = draft.figures[index];
+    setActiveFigureIndex(index);
+    setCropAnchor(figure?.subproblem ?? subproblemNumbers[0] ?? 0);
+    setCropBox(defaultCropBox());
+    setNeedCrop(true);
+  }
+
+  function addFigure() {
+    setActiveFigureIndex(draft.figures.length);
+    setCropAnchor(subproblemNumbers.find((number) => !draft.figures.some((figure) => figure.subproblem === number)) ?? 0);
+    setCropBox(defaultCropBox());
+    setNeedCrop(true);
+  }
+
+  function changeAnchor(value: number) {
+    setCropAnchor(value);
+    const current = draft.figures[activeFigureIndex];
+    if (!current) return;
+    const figures = [...draft.figures];
+    figures[activeFigureIndex] = { ...current, subproblem: value || undefined };
+    onChange({ figures });
+  }
+
+  function removeFigure(index: number) {
+    const figures = draft.figures.filter((_, figureIndex) => figureIndex !== index);
+    onChange({ figures });
+    const nextIndex = Math.max(0, Math.min(index, figures.length - 1));
+    setActiveFigureIndex(nextIndex);
+    setCropAnchor(figures[nextIndex]?.subproblem ?? subproblemNumbers[0] ?? 0);
+    if (!figures.length) setNeedCrop(false);
+  }
 
   function commitCrop(box: ImageBBox) {
+    setCropBox(box);
     if (!image) {
       onChange({ figureBbox: box });
       return;
     }
     void cropDataUrl(image, box, 0).then((dataUrl) => {
-      const base = draft.figures[0] ?? { title: "图形", svg: "", caption: "" };
+      const base = draft.figures[activeFigureIndex] ?? { title: "图形", svg: "", caption: "" };
+      const figures = [...draft.figures];
+      figures[activeFigureIndex] = { ...base, bbox: box, subproblem: cropAnchor || undefined, svg: "", image: dataUrl };
       onChange({
         figureBbox: box,
-        figures: [{ ...base, svg: "", image: dataUrl }],
+        figures,
       });
     });
   }
@@ -900,24 +960,61 @@ function ReviewForm({
         </div>
       </div>
 
+      {figureCount > 0 ? (
       <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-        <p className="border-b border-border px-4 py-2 text-xs font-medium tracking-wider text-muted-foreground">
-          图形 · 自己框选原图
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <p className="text-xs font-medium tracking-wider text-muted-foreground">图形 · 跟随对应小题</p>
+          {image ? (
+            <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={addFigure}>
+              <ImagePlus className="size-3.5" />
+              再框一张图
+            </Button>
+          ) : null}
+        </div>
         {image && needCrop ? (
           <div className="p-3">
-            {draft.figures[0]?.image ? (
-              <div className="mb-3 overflow-hidden rounded-lg">
-                <FigureFrame svg="" image={draft.figures[0].image} caption="裁切预览" />
+            {draft.figures.length ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {draft.figures.map((figure, figureIndex) => (
+                  <div key={`${figureIndex}-${figure.subproblem ?? 0}`} className="flex items-center rounded-md border border-border bg-secondary/40">
+                    <button
+                      type="button"
+                      className={cn("h-8 px-3 text-xs", figureIndex === activeFigureIndex && "bg-fg text-primary-foreground")}
+                      onClick={() => selectFigure(figureIndex)}
+                    >
+                      图 {figureIndex + 1} · {figure.subproblem ? `（${figure.subproblem}）` : "整题后"}
+                    </button>
+                    <button type="button" className="grid size-8 place-items-center text-muted-foreground hover:text-destructive" aria-label={`删除图 ${figureIndex + 1}`} onClick={() => removeFigure(figureIndex)}>
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : null}
-            <CropEditor src={image} value={cropBox} onCommit={commitCrop} />
-            <p className="mt-2 text-xs text-muted-foreground">拖动框只圈图形，松手后按这个范围裁，不再外扩。</p>
+            {draft.figures[activeFigureIndex]?.image ? (
+              <div className="mb-3 overflow-hidden rounded-lg">
+                <FigureFrame svg="" image={draft.figures[activeFigureIndex]?.image} caption="裁切预览" />
+              </div>
+            ) : null}
+            <div className="mb-3 flex items-center gap-2">
+              <label htmlFor="capture-figure-anchor" className="text-sm font-medium">跟随位置</label>
+              <select
+                id="capture-figure-anchor"
+                className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
+                value={cropAnchor}
+                onChange={(event) => changeAnchor(Number(event.target.value))}
+              >
+                <option value={0}>整题后</option>
+                {subproblemNumbers.map((number) => <option key={number} value={number}>小题（{number}）后</option>)}
+              </select>
+            </div>
+            <CropEditor key={activeFigureIndex} src={image} value={cropBox} onChange={setCropBox} onCommit={commitCrop} />
+            <p className="mt-2 text-xs text-muted-foreground">一幅图框一次，并选择它所属的小题；有多幅图时继续点“再框一张图”。</p>
           </div>
         ) : image ? (
           <div className="flex flex-col items-center gap-3 px-4 py-8">
             <p className="text-sm text-muted-foreground">这道题没有图形。</p>
-            <Button type="button" size="sm" variant="outline" onClick={() => setNeedCrop(true)}>
+            <Button type="button" size="sm" variant="outline" onClick={addFigure}>
               我来框选图形
             </Button>
           </div>
@@ -925,6 +1022,7 @@ function ReviewForm({
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有原图可裁。</p>
         )}
       </div>
+      ) : null}
 
       <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-5">
         <div className="flex flex-col gap-4">
