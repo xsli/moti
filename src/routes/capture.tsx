@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Image, ImagePlus, LoaderCircle, Type, X } from "lucide-react";
+import { FileText, Image, ImagePlus, LoaderCircle, Type, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConstructionLoader } from "@/components/capture/construction-loader";
@@ -27,17 +27,14 @@ import {
   persistCaptureHold,
   writeCaptureHold,
 } from "@/lib/capture/hold";
-import { cropDataUrl, dataUrlForGrok, fileToDataUrl } from "@/lib/image/compress";
+import { cropDataUrl, dataUrlForGrok, fileToDataUrl, stitchDataUrls } from "@/lib/image/compress";
+import { renderPdfPages } from "@/lib/image/pdf";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { MathText } from "@/lib/problems/math-text";
 import { stemSubproblemNumbers } from "@/lib/problems/subproblems";
 import { useProblemStore } from "@/lib/problems/store";
 import { applyTagChanges } from "@/lib/problems/tags";
-import {
-  SUBJECT_LABEL,
-  SUBJECTS,
-  type Subject,
-} from "@/lib/problems/types";
+import { SUBJECT_LABEL, SUBJECTS, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/capture")({
@@ -49,9 +46,10 @@ export const Route = createFileRoute("/capture")({
 });
 
 type Stage = "idle" | "loading" | "review";
+type CaptureMode = "image" | "pdf";
 
 type ExtractProgress = {
-  phase: "upload" | "recognize";
+  phase: "prepare" | "upload" | "recognize";
   current: number;
   total: number;
   startedAt: number;
@@ -68,7 +66,10 @@ function defaultCropBox(hint?: ImageBBox): ImageBBox {
   return { x: 0.38, y: 0.26, w: 0.58, h: 0.6 };
 }
 
-async function materializeFigures(photo: string | undefined, figures: ExtractedFigure[]): Promise<ExtractedFigure[]> {
+async function materializeFigures(
+  photo: string | undefined,
+  figures: ExtractedFigure[],
+): Promise<ExtractedFigure[]> {
   if (!photo) return figures.map((figure) => ({ ...figure, svg: "", image: undefined }));
   return Promise.all(
     figures.map(async (figure) => {
@@ -80,6 +81,11 @@ async function materializeFigures(photo: string | undefined, figures: ExtractedF
       }
     }),
   );
+}
+
+async function preparePdfProblemImages(pages: string[], signal: AbortSignal): Promise<string[]> {
+  if (signal.aborted) throw new DOMException("cancelled", "AbortError");
+  return [await stitchDataUrls(pages)];
 }
 
 function waitForJob(
@@ -136,6 +142,10 @@ function CapturePage() {
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("image");
+  const [pdfBatch, setPdfBatch] = useState(false);
+  const [mergePdfPages, setMergePdfPages] = useState(true);
+  const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(null);
   const [progress, setProgress] = useState<ExtractProgress | null>(null);
   const [withAnswer, setWithAnswer] = useState(false);
   const extractAbort = useRef<AbortController | null>(null);
@@ -165,7 +175,11 @@ function CapturePage() {
       if (!live) return;
       restored.current = true;
       if (!hold) return;
-      if (hold.collectionId && (hold.stage !== "idle" || !incomingGroup)) setCollectionId(hold.collectionId);
+      setPdfBatch(hold.sourceMode === "pdf");
+      setCaptureMode(hold.sourceMode);
+      setMergePdfPages(hold.mergePdfPages);
+      if (hold.collectionId && (hold.stage !== "idle" || !incomingGroup))
+        setCollectionId(hold.collectionId);
       if (hold.images.length) setImages(hold.images);
       if (hold.text) setText(hold.text);
       if (hold.drafts.length && hold.stage === "review") {
@@ -193,11 +207,13 @@ function CapturePage() {
       drafts,
       index,
       stage,
+      sourceMode: pdfBatch ? "pdf" : "image",
+      mergePdfPages,
       jobId: jobIdRef.current,
     });
     const timer = window.setTimeout(() => void persistCaptureHold(), 400);
     return () => window.clearTimeout(timer);
-  }, [images, text, collectionId, drafts, index, stage]);
+  }, [images, text, collectionId, drafts, index, stage, pdfBatch, mergePdfPages]);
 
   function pickCollection(id: string) {
     setCollectionId(id);
@@ -209,7 +225,8 @@ function CapturePage() {
   async function applyExtracted(photos: string[], result: ExtractedProblem[]) {
     const collected: DraftItem[] = [];
     for (const item of result) {
-      const photo = photos[Math.min(item.sourceIndex ?? 0, Math.max(0, photos.length - 1))] ?? photos[0];
+      const photo =
+        photos[Math.min(item.sourceIndex ?? 0, Math.max(0, photos.length - 1))] ?? photos[0];
       let sourceImage = photo;
       if (photo && item.bbox) {
         try {
@@ -286,6 +303,35 @@ function CapturePage() {
 
   async function onFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
+    if (captureMode === "pdf") {
+      const file = Array.from(files).find(
+        (item) => item.type === "application/pdf" || item.name.toLowerCase().endsWith(".pdf"),
+      );
+      if (!file) {
+        toast.error("请选择 PDF 文件。");
+        return;
+      }
+      setPdfProgress({ current: 0, total: 1 });
+      try {
+        const rendered = await renderPdfPages(file, {
+          maxPages: MAX_CAPTURE_IMAGES,
+          onProgress: (current, total) => setPdfProgress({ current, total }),
+        });
+        setImages(rendered.images);
+        setPdfBatch(true);
+        if (rendered.truncated) {
+          toast.warning(`PDF 共 ${rendered.pageCount} 页，本次已读取前 ${MAX_CAPTURE_IMAGES} 页。`);
+        } else {
+          toast.success(`已读取 ${rendered.images.length} 页，点击识别即可自动切题。`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "PDF 无法读取。";
+        toast.error(message);
+      } finally {
+        setPdfProgress(null);
+      }
+      return;
+    }
     const next: string[] = [];
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/") && file.type !== "") continue;
@@ -299,7 +345,8 @@ function CapturePage() {
       toast.error("请选择 JPG 或 PNG 图片。");
       return;
     }
-    setImages((prev) => [...prev, ...next].slice(0, MAX_CAPTURE_IMAGES));
+    setImages((prev) => (pdfBatch ? next : [...prev, ...next]).slice(0, MAX_CAPTURE_IMAGES));
+    setPdfBatch(false);
   }
 
   const onFilesRef = useRef(onFiles);
@@ -307,6 +354,7 @@ function CapturePage() {
 
   useEffect(() => {
     if (stage !== "idle") return;
+    if (captureMode !== "image") return;
     const onPaste = (event: ClipboardEvent) => {
       const data = event.clipboardData;
       if (!data) return;
@@ -330,7 +378,7 @@ function CapturePage() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [stage]);
+  }, [captureMode, stage]);
 
   async function runExtract() {
     if (!images.length && !text.trim()) {
@@ -349,20 +397,29 @@ function CapturePage() {
     });
     setBusy(true);
     try {
+      let photos = images;
+      if (pdfBatch && mergePdfPages && images.length) {
+        setProgress({ phase: "prepare", current: 1, total: 1, startedAt });
+        photos = await preparePdfProblemImages(images, ac.signal);
+        toast.success(`已将 ${images.length} 页合并为一张长图。`);
+        setImages(photos);
+        setPdfBatch(false);
+        setCaptureMode("image");
+      }
       const imageIds: string[] = [];
-      for (let i = 0; i < images.length; i++) {
+      for (let i = 0; i < photos.length; i++) {
         if (ac.signal.aborted) throw new DOMException("cancelled", "AbortError");
         setProgress({
           phase: "upload",
           current: i + 1,
-          total: images.length,
+          total: photos.length,
           startedAt,
         });
-        let forGrok = images[i];
+        let forGrok = photos[i];
         try {
-          forGrok = await dataUrlForGrok(images[i]);
+          forGrok = await dataUrlForGrok(photos[i]);
         } catch {
-          forGrok = images[i];
+          forGrok = photos[i];
         }
         const stashed = await stashExtractImage({ data: { imageDataUrl: forGrok } });
         imageIds.push(stashed.id);
@@ -370,7 +427,7 @@ function CapturePage() {
       setProgress({
         phase: "recognize",
         current: 1,
-        total: Math.max(1, images.length),
+        total: Math.max(1, photos.length),
         startedAt,
       });
       const started = await startExtractJob({
@@ -387,7 +444,14 @@ function CapturePage() {
         return;
       }
       jobIdRef.current = started.jobId;
-      writeCaptureHold({ jobId: started.jobId, images, text, collectionId, stage: "loading" });
+      writeCaptureHold({
+        jobId: started.jobId,
+        images: photos,
+        text,
+        collectionId,
+        stage: "loading",
+        sourceMode: "image",
+      });
       void persistCaptureHold();
       const result = await waitForJob(started.jobId, ac.signal, (info) => {
         setProgress({
@@ -397,7 +461,7 @@ function CapturePage() {
           startedAt: info.startedAt || startedAt,
         });
       });
-      await applyExtracted(images, result);
+      await applyExtracted(photos, result);
     } catch (error) {
       console.error(error);
       const msg = error instanceof Error ? error.message : "";
@@ -520,6 +584,8 @@ function CapturePage() {
       drafts: [],
       index: 0,
       stage: "idle",
+      sourceMode: pdfBatch ? "pdf" : "image",
+      mergePdfPages,
       jobId: "",
     });
     void persistCaptureHold();
@@ -531,6 +597,8 @@ function CapturePage() {
     setText("");
     setIndex(0);
     setStage("idle");
+    setPdfBatch(false);
+    setCaptureMode("image");
     jobIdRef.current = "";
     void clearCaptureHold();
   }
@@ -540,7 +608,11 @@ function CapturePage() {
     const { added, removed } = pendingBatchChanges();
     const finalDrafts = drafts.map((item, itemIndex) => ({
       ...item,
-      tags: applyTagChanges(itemIndex === index && currentTags ? currentTags : item.tags, added, removed),
+      tags: applyTagChanges(
+        itemIndex === index && currentTags ? currentTags : item.tags,
+        added,
+        removed,
+      ),
     }));
     setBusy(true);
     try {
@@ -635,8 +707,37 @@ function CapturePage() {
 
       {stage === "idle" ? (
         <div className="flex flex-col gap-6">
+          <div
+            className="inline-flex w-fit rounded-lg bg-secondary p-1"
+            role="group"
+            aria-label="识别文件类型"
+          >
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-9 items-center gap-2 rounded-md px-4 text-sm font-medium transition-colors",
+                captureMode === "image" ? "bg-surface text-fg shadow-sm" : "text-muted-foreground",
+              )}
+              onClick={() => setCaptureMode("image")}
+            >
+              <Image className="size-4" />
+              图片
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-9 items-center gap-2 rounded-md px-4 text-sm font-medium transition-colors",
+                captureMode === "pdf" ? "bg-surface text-fg shadow-sm" : "text-muted-foreground",
+              )}
+              onClick={() => setCaptureMode("pdf")}
+            >
+              <FileText className="size-4" />
+              PDF
+            </button>
+          </div>
           <button
             type="button"
+            disabled={Boolean(pdfProgress)}
             onClick={() => inputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
@@ -649,11 +750,21 @@ function CapturePage() {
               void onFiles(e.dataTransfer.files);
             }}
             className={cn(
-              "flex min-h-52 flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center transition-colors",
+              "flex min-h-52 flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center transition-colors disabled:cursor-wait",
               dragging ? "border-primary bg-primary/5" : "border-border bg-surface",
             )}
           >
-            {images.length ? (
+            {pdfProgress ? (
+              <>
+                <span className="flex size-12 items-center justify-center rounded-full bg-secondary">
+                  <LoaderCircle className="size-5 animate-spin text-primary" />
+                </span>
+                <span className="font-display text-lg font-semibold">正在读取 PDF</span>
+                <span className="text-sm text-muted-foreground">
+                  正在转换第 {pdfProgress.current || 1} / {pdfProgress.total} 页
+                </span>
+              </>
+            ) : images.length ? (
               <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3">
                 {images.map((src, i) => (
                   <span key={`${src.slice(-24)}-${i}`} className="relative">
@@ -662,6 +773,11 @@ function CapturePage() {
                       alt={`待识别 ${i + 1}`}
                       className="h-36 w-full rounded-lg object-contain bg-secondary outline outline-1 -outline-offset-1 outline-fg/10"
                     />
+                    {captureMode === "pdf" ? (
+                      <span className="absolute bottom-1.5 left-1.5 rounded bg-fg/80 px-2 py-1 text-xs text-primary-foreground">
+                        第 {i + 1} 页
+                      </span>
+                    ) : null}
                     <span
                       role="button"
                       tabIndex={0}
@@ -679,11 +795,19 @@ function CapturePage() {
             ) : (
               <>
                 <span className="flex size-12 items-center justify-center rounded-full bg-secondary">
-                  <ImagePlus className="size-5 text-primary" />
+                  {captureMode === "pdf" ? (
+                    <FileText className="size-5 text-primary" />
+                  ) : (
+                    <ImagePlus className="size-5 text-primary" />
+                  )}
                 </span>
-                <span className="font-display text-lg font-semibold">拍照、粘贴或拖入试卷</span>
+                <span className="font-display text-lg font-semibold">
+                  {captureMode === "pdf" ? "选择或拖入 PDF" : "拍照、粘贴或拖入试卷"}
+                </span>
                 <span className="text-sm text-muted-foreground">
-                  复制截图后按 Ctrl+V / ⌘V 即可。一次最多 {MAX_CAPTURE_IMAGES} 张，一页多题会自动分开。
+                  {captureMode === "pdf"
+                    ? `PDF 会在本地转换为页面图，最多读取 ${MAX_CAPTURE_IMAGES} 页，再自动切分题目。`
+                    : `复制截图后按 Ctrl+V / ⌘V 即可。一次最多 ${MAX_CAPTURE_IMAGES} 张，一页多题会自动分开。`}
                 </span>
               </>
             )}
@@ -691,8 +815,8 @@ function CapturePage() {
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
-            multiple
+            accept={captureMode === "pdf" ? "application/pdf,.pdf" : "image/*"}
+            multiple={captureMode === "image"}
             className="sr-only"
             suppressHydrationWarning
             onChange={(e) => {
@@ -700,6 +824,25 @@ function CapturePage() {
               e.target.value = "";
             }}
           />
+
+          {captureMode === "pdf" ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={mergePdfPages}
+                  onChange={(e) => setMergePdfPages(e.target.checked)}
+                />
+                合并成长图识别
+              </label>
+              {mergePdfPages ? (
+                <p className="pl-6 text-xs text-muted-foreground">
+                  合并后会作为一张长图处理，单张识别时间会较长。
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="stem-text" className="inline-flex items-center gap-1.5">
@@ -726,12 +869,21 @@ function CapturePage() {
             />
             同时生成答案和解析（更慢）
           </label>
-          <Button size="lg" onClick={() => void runExtract()} disabled={busy}>
+          <Button
+            size="lg"
+            onClick={() => void runExtract()}
+            disabled={busy || Boolean(pdfProgress)}
+          >
             {busy ? <LoaderCircle className="animate-spin" /> : null}
-            {images.length > 1 ? `一次识别 ${images.length} 张` : "识别题干"}
+            {images.length > 1
+              ? `一次识别 ${images.length} ${pdfBatch && !mergePdfPages ? "页" : "张"}`
+              : "识别题干"}
           </Button>
           {collectionId ? (
-            <Button variant="ghost" onClick={() => void navigate({ to: "/", search: { g: collectionId } })}>
+            <Button
+              variant="ghost"
+              onClick={() => void navigate({ to: "/", search: { g: collectionId } })}
+            >
               回这一组
             </Button>
           ) : null}
@@ -757,7 +909,11 @@ function CapturePage() {
                     )}
                   >
                     {item.sourceImage ? (
-                      <img src={item.sourceImage} alt="" className="h-16 w-24 object-cover bg-secondary" />
+                      <img
+                        src={item.sourceImage}
+                        alt=""
+                        className="h-16 w-24 object-cover bg-secondary"
+                      />
                     ) : (
                       <span className="grid h-16 w-24 place-items-center bg-secondary text-xs">
                         {i + 1}
@@ -766,21 +922,22 @@ function CapturePage() {
                   </button>
                 ))}
               </div>
-            <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-              <p className="text-sm font-medium">
-                本批标签 <span className="font-normal text-muted-foreground">会添加到每一道题</span>
-              </p>
-              <div className="mt-3">
-                <TagEditor
-                  ref={batchTagEditorRef}
-                  tags={batchCommonTags}
-                  placeholder="例如：期末、函数"
-                  onChange={applyBatchTags}
-                />
+              <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+                <p className="text-sm font-medium">
+                  本批标签{" "}
+                  <span className="font-normal text-muted-foreground">会添加到每一道题</span>
+                </p>
+                <div className="mt-3">
+                  <TagEditor
+                    ref={batchTagEditorRef}
+                    tags={batchCommonTags}
+                    placeholder="例如：期末、函数"
+                    onChange={applyBatchTags}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
           <ReviewForm
             key={index}
             draft={draft}
@@ -824,7 +981,9 @@ function ReviewForm({
   const [showSourceImage, setShowSourceImage] = useState(true);
   const [activeFigureIndex, setActiveFigureIndex] = useState(0);
   const [cropBox, setCropBox] = useState(() => defaultCropBox());
-  const [cropAnchor, setCropAnchor] = useState(() => draft.figures[0]?.subproblem ?? subproblemNumbers[0] ?? 0);
+  const [cropAnchor, setCropAnchor] = useState(
+    () => draft.figures[0]?.subproblem ?? subproblemNumbers[0] ?? 0,
+  );
   const tagEditorRef = useRef<TagEditorHandle>(null);
 
   function selectFigure(index: number) {
@@ -837,7 +996,11 @@ function ReviewForm({
 
   function addFigure() {
     setActiveFigureIndex(draft.figures.length);
-    setCropAnchor(subproblemNumbers.find((number) => !draft.figures.some((figure) => figure.subproblem === number)) ?? 0);
+    setCropAnchor(
+      subproblemNumbers.find(
+        (number) => !draft.figures.some((figure) => figure.subproblem === number),
+      ) ?? 0,
+    );
     setCropBox(defaultCropBox());
     setNeedCrop(true);
   }
@@ -869,7 +1032,13 @@ function ReviewForm({
     void cropDataUrl(image, box, 0).then((dataUrl) => {
       const base = draft.figures[activeFigureIndex] ?? { title: "图形", svg: "", caption: "" };
       const figures = [...draft.figures];
-      figures[activeFigureIndex] = { ...base, bbox: box, subproblem: cropAnchor || undefined, svg: "", image: dataUrl };
+      figures[activeFigureIndex] = {
+        ...base,
+        bbox: box,
+        subproblem: cropAnchor || undefined,
+        svg: "",
+        image: dataUrl,
+      };
       onChange({
         figureBbox: box,
         figures,
@@ -934,7 +1103,11 @@ function ReviewForm({
             <span className="text-sm font-medium">科目</span>
             <div className="flex flex-wrap gap-1.5">
               {SUBJECTS.map((s) => (
-                <Chip key={s} active={draft.subject === s} onClick={() => onChange({ subject: s as Subject })}>
+                <Chip
+                  key={s}
+                  active={draft.subject === s}
+                  onClick={() => onChange({ subject: s as Subject })}
+                >
                   {SUBJECT_LABEL[s]}
                 </Chip>
               ))}
@@ -961,73 +1134,120 @@ function ReviewForm({
       </div>
 
       {figureCount > 0 ? (
-      <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
-          <p className="text-xs font-medium tracking-wider text-muted-foreground">图形 · 跟随对应小题</p>
-          {image ? (
-            <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={addFigure}>
-              <ImagePlus className="size-3.5" />
-              再框一张图
-            </Button>
-          ) : null}
-        </div>
-        {image && needCrop ? (
-          <div className="p-3">
-            {draft.figures.length ? (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {draft.figures.map((figure, figureIndex) => (
-                  <div key={`${figureIndex}-${figure.subproblem ?? 0}`} className="flex items-center rounded-md border border-border bg-secondary/40">
-                    <button
-                      type="button"
-                      className={cn("h-8 px-3 text-xs", figureIndex === activeFigureIndex && "bg-fg text-primary-foreground")}
-                      onClick={() => selectFigure(figureIndex)}
-                    >
-                      图 {figureIndex + 1} · {figure.subproblem ? `（${figure.subproblem}）` : "整题后"}
-                    </button>
-                    <button type="button" className="grid size-8 place-items-center text-muted-foreground hover:text-destructive" aria-label={`删除图 ${figureIndex + 1}`} onClick={() => removeFigure(figureIndex)}>
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {draft.figures[activeFigureIndex]?.image ? (
-              <div className="mb-3 overflow-hidden rounded-lg">
-                <FigureFrame svg="" image={draft.figures[activeFigureIndex]?.image} caption="裁切预览" />
-              </div>
-            ) : null}
-            <div className="mb-3 flex items-center gap-2">
-              <label htmlFor="capture-figure-anchor" className="text-sm font-medium">跟随位置</label>
-              <select
-                id="capture-figure-anchor"
-                className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
-                value={cropAnchor}
-                onChange={(event) => changeAnchor(Number(event.target.value))}
+        <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+            <p className="text-xs font-medium tracking-wider text-muted-foreground">
+              图形 · 跟随对应小题
+            </p>
+            {image ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={addFigure}
               >
-                <option value={0}>整题后</option>
-                {subproblemNumbers.map((number) => <option key={number} value={number}>小题（{number}）后</option>)}
-              </select>
+                <ImagePlus className="size-3.5" />
+                再框一张图
+              </Button>
+            ) : null}
+          </div>
+          {image && needCrop ? (
+            <div className="p-3">
+              {draft.figures.length ? (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {draft.figures.map((figure, figureIndex) => (
+                    <div
+                      key={`${figureIndex}-${figure.subproblem ?? 0}`}
+                      className="flex items-center rounded-md border border-border bg-secondary/40"
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          "h-8 px-3 text-xs",
+                          figureIndex === activeFigureIndex && "bg-fg text-primary-foreground",
+                        )}
+                        onClick={() => selectFigure(figureIndex)}
+                      >
+                        图 {figureIndex + 1} ·{" "}
+                        {figure.subproblem ? `（${figure.subproblem}）` : "整题后"}
+                      </button>
+                      <button
+                        type="button"
+                        className="grid size-8 place-items-center text-muted-foreground hover:text-destructive"
+                        aria-label={`删除图 ${figureIndex + 1}`}
+                        onClick={() => removeFigure(figureIndex)}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {draft.figures[activeFigureIndex]?.image ? (
+                <div className="mb-3 overflow-hidden rounded-lg">
+                  <FigureFrame
+                    svg=""
+                    image={draft.figures[activeFigureIndex]?.image}
+                    caption="裁切预览"
+                  />
+                </div>
+              ) : null}
+              <div className="mb-3 flex items-center gap-2">
+                <label htmlFor="capture-figure-anchor" className="text-sm font-medium">
+                  跟随位置
+                </label>
+                <select
+                  id="capture-figure-anchor"
+                  className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
+                  value={cropAnchor}
+                  onChange={(event) => changeAnchor(Number(event.target.value))}
+                >
+                  <option value={0}>整题后</option>
+                  {subproblemNumbers.map((number) => (
+                    <option key={number} value={number}>
+                      小题（{number}）后
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <CropEditor
+                key={activeFigureIndex}
+                src={image}
+                value={cropBox}
+                onChange={setCropBox}
+                onCommit={commitCrop}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                一幅图框一次，并选择它所属的小题；有多幅图时继续点“再框一张图”。
+              </p>
             </div>
-            <CropEditor key={activeFigureIndex} src={image} value={cropBox} onChange={setCropBox} onCommit={commitCrop} />
-            <p className="mt-2 text-xs text-muted-foreground">一幅图框一次，并选择它所属的小题；有多幅图时继续点“再框一张图”。</p>
-          </div>
-        ) : image ? (
-          <div className="flex flex-col items-center gap-3 px-4 py-8">
-            <p className="text-sm text-muted-foreground">这道题没有图形。</p>
-            <Button type="button" size="sm" variant="outline" onClick={addFigure}>
-              我来框选图形
-            </Button>
-          </div>
-        ) : (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有原图可裁。</p>
-        )}
-      </div>
+          ) : image ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-8">
+              <p className="text-sm text-muted-foreground">这道题没有图形。</p>
+              <Button type="button" size="sm" variant="outline" onClick={addFigure}>
+                我来框选图形
+              </Button>
+            </div>
+          ) : (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有原图可裁。</p>
+          )}
+        </div>
       ) : null}
 
       <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] sm:p-5">
         <div className="flex flex-col gap-4">
-          <PreviewField label="正确答案" value={draft.correctAnswer} onChange={(v) => onChange({ correctAnswer: v })} />
-          <PreviewField label="解析" value={draft.analysis} onChange={(v) => onChange({ analysis: v })} tall />
+          <PreviewField
+            label="正确答案"
+            value={draft.correctAnswer}
+            onChange={(v) => onChange({ correctAnswer: v })}
+          />
+          <PreviewField
+            label="解析"
+            value={draft.analysis}
+            onChange={(v) => onChange({ analysis: v })}
+            tall
+          />
         </div>
       </div>
 
@@ -1129,7 +1349,9 @@ function Chip({
       onClick={onClick}
       className={cn(
         "h-9 rounded-full px-3 text-sm transition-colors",
-        active ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+        active
+          ? "bg-fg text-primary-foreground"
+          : "bg-secondary text-muted-foreground hover:text-fg",
       )}
     >
       {children}

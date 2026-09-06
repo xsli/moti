@@ -66,6 +66,17 @@ export function sortCollectionsByOrder<T extends Pick<Collection, "id" | "sortOr
   });
 }
 
+export function nextCollectionSortOrder(
+  collections: Pick<Collection, "kind" | "groupName" | "sortOrder">[],
+  groupName: string,
+  kind: CollectionKind,
+): number {
+  return collections.reduce((max, item) => {
+    if (item.groupName !== groupName || item.kind !== kind) return max;
+    return Math.max(max, item.sortOrder);
+  }, 0) + 1;
+}
+
 export function coerceCollectionList(raw: unknown): Collection[] {
   if (!Array.isArray(raw)) return [];
   const out: Collection[] = [];

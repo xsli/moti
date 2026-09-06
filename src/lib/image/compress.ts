@@ -77,3 +77,39 @@ export async function cropDataUrl(
   if (png.length <= 12_000_000) return png;
   return canvas.toDataURL("image/jpeg", 0.95);
 }
+
+export async function stitchDataUrls(dataUrls: string[]): Promise<string> {
+  if (!dataUrls.length) throw new Error("没有可以拼接的图片");
+  if (dataUrls.length === 1) return dataUrls[0];
+  const bitmaps = await Promise.all(dataUrls.map(bitmapFromDataUrl));
+  try {
+    const naturalWidth = Math.max(...bitmaps.map((bitmap) => bitmap.width));
+    const naturalHeight = bitmaps.reduce(
+      (sum, bitmap) => sum + (bitmap.height * naturalWidth) / bitmap.width,
+      0,
+    );
+    const scale = Math.min(
+      1,
+      28_000 / naturalHeight,
+      Math.sqrt(60_000_000 / (naturalWidth * naturalHeight)),
+    );
+    const width = Math.max(1, Math.round(naturalWidth * scale));
+    const heights = bitmaps.map((bitmap) => Math.round((bitmap.height * width) / bitmap.width));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = heights.reduce((sum, height) => sum + height, 0);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("浏览器无法拼接跨页题目");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    let y = 0;
+    bitmaps.forEach((bitmap, index) => {
+      ctx.drawImage(bitmap, 0, y, width, heights[index]);
+      y += heights[index];
+    });
+    const jpeg = canvas.toDataURL("image/jpeg", 0.95);
+    return jpeg.length <= 24_000_000 ? jpeg : canvas.toDataURL("image/jpeg", 0.88);
+  } finally {
+    bitmaps.forEach((bitmap) => bitmap.close());
+  }
+}

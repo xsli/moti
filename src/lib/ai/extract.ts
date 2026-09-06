@@ -43,8 +43,7 @@ export interface ExtractedProblem {
 }
 
 export type ExtractResult =
-  | { ok: true; results: ExtractedProblem[] }
-  | { ok: false; error: string };
+  { ok: true; results: ExtractedProblem[] } | { ok: false; error: string };
 
 export const EXTRACT_TIMEOUT_MS = 480_000;
 export const MAX_CAPTURE_IMAGES = 16;
@@ -257,7 +256,10 @@ function normalizeExtracted(raw: unknown): ExtractedProblem {
     stem,
     subject: coerceSubject(String(obj.subject ?? "other")),
     tags: Array.isArray(obj.tags)
-      ? obj.tags.map((t) => String(t).slice(0, 16)).filter(Boolean).slice(0, 8)
+      ? obj.tags
+          .map((t) => String(t).slice(0, 16))
+          .filter(Boolean)
+          .slice(0, 8)
       : [],
     difficulty: clampDifficulty(obj.difficulty),
     figures,
@@ -275,7 +277,8 @@ function normalizeExtracted(raw: unknown): ExtractedProblem {
 function normalizeBatch(raw: unknown): ExtractedProblem[] {
   if (Array.isArray(raw)) return raw.map(normalizeExtracted).slice(0, MAX_EXTRACT_PROBLEMS);
   const obj = (raw ?? {}) as Record<string, unknown>;
-  if (Array.isArray(obj.problems)) return obj.problems.map(normalizeExtracted).slice(0, MAX_EXTRACT_PROBLEMS);
+  if (Array.isArray(obj.problems))
+    return obj.problems.map(normalizeExtracted).slice(0, MAX_EXTRACT_PROBLEMS);
   if (obj.title || obj.stem || obj.figures) return [normalizeExtracted(obj)];
   return [];
 }
@@ -292,10 +295,10 @@ type ExtractJob = {
   total?: number;
 };
 
-const jobStore = (globalThis as typeof globalThis & {
+const jobStore = globalThis as typeof globalThis & {
   __motiExtractJobs?: Map<string, ExtractJob>;
   __motiExtractImages?: Map<string, string>;
-});
+};
 jobStore.__motiExtractJobs ??= new Map();
 jobStore.__motiExtractImages ??= new Map();
 const jobs = jobStore.__motiExtractJobs;
@@ -372,7 +375,12 @@ async function runCodexExtract(
 
   const photos = resolvePhotos(data);
   if (!photos.length && !data.text) {
-    return { ok: false, error: data.imageIds?.length ? "照片在服务器丢了，请再点一次识别。" : "请先拍照或粘贴题目文字" };
+    return {
+      ok: false,
+      error: data.imageIds?.length
+        ? "照片在服务器丢了，请再点一次识别。"
+        : "请先拍照或粘贴题目文字",
+    };
   }
 
   if ((data.mode ?? "extract") !== "redraw" && photos.length > 1) {
@@ -400,7 +408,7 @@ async function runCodexExtract(
     if (!collected.length) {
       return { ok: false, error: errors[0] || "没有识别到题目，请重试。" };
     }
-    return { ok: true, results: collected };
+    return { ok: true, results: collected.slice(0, MAX_EXTRACT_PROBLEMS) };
   }
 
   const mode = data.mode ?? "extract";
@@ -408,7 +416,9 @@ async function runCodexExtract(
   const withAnswer = Boolean(data.withAnswer);
   const userTextParts: string[] = [];
   if (mode === "redraw") {
-    userTextParts.push("只标出这一道题的所有图形位置，分别写入 figures；分属小题的图必须填写对应 subproblem，不能合并框选。不要输出 SVG。返回 {\"problems\":[这一道]}。");
+    userTextParts.push(
+      '只标出这一道题的所有图形位置，分别写入 figures；分属小题的图必须填写对应 subproblem，不能合并框选。不要输出 SVG。返回 {"problems":[这一道]}。',
+    );
   } else if (withAnswer) {
     userTextParts.push(
       "请识别图中的数学题。多道必须拆开。所有图形分别写入 figures，每张只框一幅图，并填写所属 subproblem。不要输出 SVG。sourceIndex 为 0。同时给出正确答案和解析。",
@@ -448,7 +458,12 @@ async function runCodexExtract(
     const msg = error instanceof Error ? `${error.name} ${error.message}` : String(error);
     console.error("Codex extract failed", error);
     if (aborted) {
-      return { ok: false, error: signal?.aborted ? "已取消识别。" : "识别超时了（8 分钟）。照片还在，请再点一次识别。" };
+      return {
+        ok: false,
+        error: signal?.aborted
+          ? "已取消识别。"
+          : "识别超时了（8 分钟）。照片还在，请再点一次识别。",
+      };
     }
     if (/timeout|UND_ERR_HEADERS|UND_ERR_BODY|aborted/i.test(msg)) {
       return { ok: false, error: "Codex 看图时间过长，连接中断了。照片还在，请再试一次。" };
@@ -489,39 +504,49 @@ export const solveProblem = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<
-    { ok: true; correctAnswer: string; analysis: string } | { ok: false; error: string }
-  > => {
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 180_000);
-    try {
-      const parsed = await runCodexJson<Record<string, unknown>>({
-        prompt:
-          "You are a mathematics teacher. Solve the Chinese exam problem below. " +
-          "Keep correctAnswer brief and explain the main steps in Chinese with $LaTeX$.\n\n" +
-          data.stem,
-        images: data.imageDataUrl ? [data.imageDataUrl] : [],
-        outputSchema: SOLVE_OUTPUT_SCHEMA,
-        signal: abort.signal,
-      });
-      const correctAnswer = String(parsed.correctAnswer ?? parsed.answer ?? "").trim().slice(0, 2000);
-      const analysis = String(parsed.analysis ?? parsed.solution ?? "").trim().slice(0, 8000);
-      if (!correctAnswer && !analysis) return { ok: false, error: "没有得到解答，请再试一次。" };
-      return { ok: true, correctAnswer, analysis };
-    } catch (error) {
-      const aborted =
-        (error instanceof Error && error.name === "AbortError") ||
-        (error instanceof DOMException && error.name === "AbortError");
-      console.error("Codex solve failed", error);
-      if (aborted) return { ok: false, error: "解答超时了，请再试一次。" };
-      return { ok: false, error: "解答中断了，请检查网络后重试。" };
-    } finally {
-      clearTimeout(timer);
-    }
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; correctAnswer: string; analysis: string } | { ok: false; error: string }
+    > => {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 180_000);
+      try {
+        const parsed = await runCodexJson<Record<string, unknown>>({
+          prompt:
+            "You are a mathematics teacher. Solve the Chinese exam problem below. " +
+            "Keep correctAnswer brief and explain the main steps in Chinese with $LaTeX$.\n\n" +
+            data.stem,
+          images: data.imageDataUrl ? [data.imageDataUrl] : [],
+          outputSchema: SOLVE_OUTPUT_SCHEMA,
+          signal: abort.signal,
+        });
+        const correctAnswer = String(parsed.correctAnswer ?? parsed.answer ?? "")
+          .trim()
+          .slice(0, 2000);
+        const analysis = String(parsed.analysis ?? parsed.solution ?? "")
+          .trim()
+          .slice(0, 8000);
+        if (!correctAnswer && !analysis) return { ok: false, error: "没有得到解答，请再试一次。" };
+        return { ok: true, correctAnswer, analysis };
+      } catch (error) {
+        const aborted =
+          (error instanceof Error && error.name === "AbortError") ||
+          (error instanceof DOMException && error.name === "AbortError");
+        console.error("Codex solve failed", error);
+        if (aborted) return { ok: false, error: "解答超时了，请再试一次。" };
+        return { ok: false, error: "解答中断了，请检查网络后重试。" };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 
 export const stashExtractImage = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ imageDataUrl: z.string().min(32).max(24_000_000) }).parse(input))
+  .validator((input: unknown) =>
+    z.object({ imageDataUrl: z.string().min(32).max(24_000_000) }).parse(input),
+  )
   .handler(async ({ data }) => {
     const id = crypto.randomUUID();
     imageBag.set(id, data.imageDataUrl);
@@ -542,70 +567,86 @@ export const startExtractJob = createServerFn({ method: "POST" })
       invalid: true,
     };
   })
-  .handler(async ({ data }): Promise<{ ok: true; jobId: string } | { ok: false; error: string }> => {
-    pruneJobs();
-    if (data.invalid) return { ok: false, error: "照片太大或格式不对，请换一张再试。" };
-    const photos = resolvePhotos(data);
-    if (!photos.length && !data.text) {
-      return { ok: false, error: data.imageIds?.length ? "照片在服务器丢了，请再点一次识别。" : "请先拍照或粘贴题目文字" };
-    }
-    const jobId = crypto.randomUUID();
-    const abort = new AbortController();
-    const job: ExtractJob = {
-      status: "running",
-      startedAt: Date.now(),
-      abort,
-      current: 1,
-      total: Math.max(1, photos.length),
-    };
-    jobs.set(jobId, job);
-    persistJob(jobId, job);
-    void runCodexExtract(data, abort.signal, (current, total) => {
-      const live = jobs.get(jobId);
-      if (live && live.status === "running") {
-        live.current = current;
-        live.total = total;
-        persistJob(jobId, live);
+  .handler(
+    async ({ data }): Promise<{ ok: true; jobId: string } | { ok: false; error: string }> => {
+      pruneJobs();
+      if (data.invalid) return { ok: false, error: "照片太大或格式不对，请换一张再试。" };
+      const photos = resolvePhotos(data);
+      if (!photos.length && !data.text) {
+        return {
+          ok: false,
+          error: data.imageIds?.length
+            ? "照片在服务器丢了，请再点一次识别。"
+            : "请先拍照或粘贴题目文字",
+        };
       }
-    }).then((result) => {
-      const current = jobs.get(jobId);
-      if (!current || current.status !== "running") return;
-      if (result.ok) {
-        current.status = "done";
-        current.results = result.results;
-      } else {
-        current.status = "error";
-        current.error = result.error;
-      }
-      persistJob(jobId, current);
-      if (data.imageIds) {
-        for (const id of data.imageIds) imageBag.delete(id);
-      }
-    });
-    return { ok: true, jobId };
-  });
+      const jobId = crypto.randomUUID();
+      const abort = new AbortController();
+      const job: ExtractJob = {
+        status: "running",
+        startedAt: Date.now(),
+        abort,
+        current: 1,
+        total: Math.max(1, photos.length),
+      };
+      jobs.set(jobId, job);
+      persistJob(jobId, job);
+      void runCodexExtract(data, abort.signal, (current, total) => {
+        const live = jobs.get(jobId);
+        if (live && live.status === "running") {
+          live.current = current;
+          live.total = total;
+          persistJob(jobId, live);
+        }
+      }).then((result) => {
+        const current = jobs.get(jobId);
+        if (!current || current.status !== "running") return;
+        if (result.ok) {
+          current.status = "done";
+          current.results = result.results;
+        } else {
+          current.status = "error";
+          current.error = result.error;
+        }
+        persistJob(jobId, current);
+        if (data.imageIds) {
+          for (const id of data.imageIds) imageBag.delete(id);
+        }
+      });
+      return { ok: true, jobId };
+    },
+  );
 
 export const pollExtractJob = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ jobId: z.string().min(8).max(80) }).parse(input))
-  .handler(async ({ data }): Promise<
-    | { status: "running"; current?: number; total?: number; startedAt?: number }
-    | { status: "done"; results: ExtractedProblem[] }
-    | { status: "error"; error: string }
-  > => {
-    const job = jobs.get(data.jobId);
-    if (!job) {
-      const disk = readDiskJob(data.jobId);
-      if (disk?.status === "done") return { status: "done", results: disk.results ?? [] };
-      if (disk?.status === "error") return { status: "error", error: disk.error || "识别失败" };
-      if (disk?.status === "running") {
-        return { status: "error", error: "识别任务中断了，照片还在，请再点一次识别。" };
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | { status: "running"; current?: number; total?: number; startedAt?: number }
+      | { status: "done"; results: ExtractedProblem[] }
+      | { status: "error"; error: string }
+    > => {
+      const job = jobs.get(data.jobId);
+      if (!job) {
+        const disk = readDiskJob(data.jobId);
+        if (disk?.status === "done") return { status: "done", results: disk.results ?? [] };
+        if (disk?.status === "error") return { status: "error", error: disk.error || "识别失败" };
+        if (disk?.status === "running") {
+          return { status: "error", error: "识别任务中断了，照片还在，请再点一次识别。" };
+        }
+        return { status: "error", error: "识别任务丢了，请再点一次识别。" };
       }
-      return { status: "error", error: "识别任务丢了，请再点一次识别。" };
-    }
-    if (job.status === "done") return { status: "done", results: job.results ?? [] };
-    if (job.status === "error") return { status: "error", error: job.error || "识别失败" };
-    return { status: "running", current: job.current, total: job.total, startedAt: job.startedAt };
-  });
+      if (job.status === "done") return { status: "done", results: job.results ?? [] };
+      if (job.status === "error") return { status: "error", error: job.error || "识别失败" };
+      return {
+        status: "running",
+        current: job.current,
+        total: job.total,
+        startedAt: job.startedAt,
+      };
+    },
+  );
 
 export const cancelExtractJob = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ jobId: z.string().min(8).max(80) }).parse(input))
@@ -633,7 +674,9 @@ Rules:
 - If there is no diagram: {"hasFigure": false}`;
 
 export const locateFigure = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ imageDataUrl: z.string().min(32).max(2_800_000) }).parse(input))
+  .validator((input: unknown) =>
+    z.object({ imageDataUrl: z.string().min(32).max(2_800_000) }).parse(input),
+  )
   .handler(
     async ({ data }): Promise<{ ok: true; bbox?: ImageBBox } | { ok: false; error: string }> => {
       try {

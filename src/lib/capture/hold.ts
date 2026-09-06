@@ -8,6 +8,8 @@ export type CaptureHold = {
   drafts: Array<ExtractedProblem & { sourceImage?: string }>;
   index: number;
   stage: "idle" | "loading" | "review";
+  sourceMode: "image" | "pdf";
+  mergePdfPages: boolean;
 };
 
 const memory: CaptureHold = {
@@ -18,6 +20,8 @@ const memory: CaptureHold = {
   drafts: [],
   index: 0,
   stage: "idle",
+  sourceMode: "image",
+  mergePdfPages: true,
 };
 
 const META_KEY = "moti-capture-meta";
@@ -29,6 +33,8 @@ type Meta = {
   jobId: string;
   index: number;
   stage: CaptureHold["stage"];
+  sourceMode: CaptureHold["sourceMode"];
+  mergePdfPages: boolean;
   imageCount: number;
   draftCount: number;
 };
@@ -70,6 +76,8 @@ export async function persistCaptureHold(): Promise<void> {
     jobId: memory.jobId,
     index: memory.index,
     stage: memory.stage,
+    sourceMode: memory.sourceMode,
+    mergePdfPages: memory.mergePdfPages,
     imageCount: memory.images.length,
     draftCount: memory.drafts.length,
   };
@@ -120,7 +128,14 @@ export async function loadCaptureHold(): Promise<CaptureHold | null> {
   memory.collectionId = meta?.collectionId ?? "";
   memory.jobId = meta?.jobId || jobOnly;
   memory.index = meta?.index ?? 0;
-  memory.stage = meta?.stage === "review" || meta?.stage === "loading" ? meta.stage : memory.jobId ? "loading" : "idle";
+  memory.stage =
+    meta?.stage === "review" || meta?.stage === "loading"
+      ? meta.stage
+      : memory.jobId
+        ? "loading"
+        : "idle";
+  memory.sourceMode = meta?.sourceMode === "pdf" ? "pdf" : "image";
+  memory.mergePdfPages = meta?.mergePdfPages !== false;
   if (typeof caches !== "undefined") {
     try {
       const cache = await caches.open(CACHE);
@@ -160,6 +175,8 @@ export async function clearCaptureHold(): Promise<void> {
   memory.drafts = [];
   memory.index = 0;
   memory.stage = "idle";
+  memory.sourceMode = "image";
+  memory.mergePdfPages = true;
   try {
     sessionStorage.removeItem(META_KEY);
     sessionStorage.removeItem("moti-capture-job");

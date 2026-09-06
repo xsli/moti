@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { exportNotebookJson, parseImportedNotebook, readCachedNotebook, writeCachedProblems } from "./cache";
 import {
   mergeCollections,
+  nextCollectionSortOrder,
   type Collection,
   type CollectionKind,
 } from "./collections";
@@ -269,12 +270,14 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
   addCollection: async (input) => {
     const id = crypto.randomUUID();
     const now = Date.now();
+    const kind = input.kind ?? "custom";
+    const groupName = (input.groupName ?? "").trim().slice(0, 40);
     const collection: Collection = {
       id,
       name: input.name.trim().slice(0, 40) || "未命名",
-      kind: input.kind ?? "custom",
-      groupName: (input.groupName ?? "").trim().slice(0, 40),
-      sortOrder: 0,
+      kind,
+      groupName,
+      sortOrder: nextCollectionSortOrder(get().collections, groupName, kind),
       createdAt: now,
       updatedAt: now,
     };

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { coerceCollection, defaultCollectionName, mergeCollections, sortCollectionsByOrder } from "./collections.ts";
+import {
+  coerceCollection,
+  defaultCollectionName,
+  mergeCollections,
+  nextCollectionSortOrder,
+  sortCollectionsByOrder,
+} from "./collections.ts";
 import { moveId, sortBySourceOrder, spliceVisibleOrder } from "./order.ts";
 import type { Problem } from "./types.ts";
 
@@ -48,7 +54,7 @@ describe("collections", () => {
     assert.equal(merged[0]?.sortOrder, 2);
   });
 
-  it("keeps explicit collection order and puts new unranked groups first", () => {
+  it("keeps explicit collection order and puts legacy unranked groups first", () => {
     const sorted = sortCollectionsByOrder(
       [
         { id: "second", sortOrder: 2, recent: 20 },
@@ -58,6 +64,18 @@ describe("collections", () => {
       (item) => item.recent,
     );
     assert.deepEqual(sorted.map((item) => item.id), ["new", "first", "second"]);
+  });
+
+  it("appends a new collection after the same folder and kind", () => {
+    const collections = [
+      { groupName: "初一上", kind: "unit" as const, sortOrder: 2 },
+      { groupName: "初一上", kind: "unit" as const, sortOrder: 5 },
+      { groupName: "初一上", kind: "exam" as const, sortOrder: 8 },
+      { groupName: "初一下", kind: "unit" as const, sortOrder: 9 },
+    ];
+
+    assert.equal(nextCollectionSortOrder(collections, "初一上", "unit"), 6);
+    assert.equal(nextCollectionSortOrder(collections, "新大组", "unit"), 1);
   });
 
   it("builds a default capture group name", () => {

@@ -6,7 +6,10 @@ describe("subproblem figures", () => {
   it("splits numbered subproblems and keeps their labels", () => {
     const stem = "说明文字\n（1）第一问 $|a|$\n（2）第二问 $|b|$";
     const sections = splitStemSections(stem);
-    assert.deepEqual(sections.map((section) => section.subproblem), [0, 1, 2]);
+    assert.deepEqual(
+      sections.map((section) => section.subproblem),
+      [0, 1, 2],
+    );
     assert.match(sections[1]?.text ?? "", /^（1）/);
     assert.match(sections[2]?.text ?? "", /^（2）/);
   });
@@ -17,5 +20,12 @@ describe("subproblem figures", () => {
 
   it("keeps an unnumbered stem as one whole section", () => {
     assert.deepEqual(splitStemSections("求 $x$ 的值"), [{ subproblem: 0, text: "求 $x$ 的值" }]);
+  });
+
+  it("does not treat function arguments inside math as subproblem labels", () => {
+    const stem = "(2) 定义 $f(x)=x^2$，求 $f(1)+f(3)+f(5)+\\cdots+f(999)$ 的值。";
+    const sections = splitStemSections(stem);
+    assert.deepEqual(sections, [{ subproblem: 2, text: stem }]);
+    assert.deepEqual(stemSubproblemNumbers(stem), [2]);
   });
 });

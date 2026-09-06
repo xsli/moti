@@ -17,7 +17,7 @@ export function ConstructionLoader({
   withAnswer,
   onCancel,
 }: {
-  phase: "upload" | "recognize";
+  phase: "prepare" | "upload" | "recognize";
   current: number;
   total: number;
   startedAt: number;
@@ -42,11 +42,13 @@ export function ConstructionLoader({
   const safeCurrent = Math.min(Math.max(1, current), safeTotal);
   const ratio = Math.min(0.95, Math.max(0.06, (safeCurrent - 0.45) / safeTotal));
   const title =
-    phase === "upload"
-      ? "正在上传照片"
-      : withAnswer
-        ? "正在识别并生成答案"
-        : "正在识别题干";
+    phase === "prepare"
+      ? "正在合并 PDF 页面"
+      : phase === "upload"
+        ? "正在上传照片"
+        : withAnswer
+          ? "正在识别并生成答案"
+          : "正在识别题干";
 
   return (
     <div className="flex flex-col items-center gap-8 py-8">
@@ -80,9 +82,11 @@ export function ConstructionLoader({
         <p className="font-display text-lg font-semibold">{title}</p>
         <p className="mt-1 text-sm text-muted-foreground">
           {safeTotal > 1 ? `第 ${safeCurrent} / ${safeTotal} 张` : "处理这一张"}
-          {phase === "recognize" ? ` · 本张 ${formatElapsed(stageElapsed)}` : null}
+          {phase !== "upload" ? ` · 本张 ${formatElapsed(stageElapsed)}` : null}
         </p>
-        <p className="mt-3 font-display text-2xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</p>
+        <p className="mt-3 font-display text-2xl tabular-nums tracking-tight">
+          {formatElapsed(elapsed)}
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">已用时间，可随时取消</p>
         <div className="mt-5 h-2 overflow-hidden rounded-full bg-secondary">
           <div
