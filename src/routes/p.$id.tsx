@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
+import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -8,6 +8,7 @@ import { FigureFrame } from "@/components/notebook/figure-frame";
 import { TagEditor } from "@/components/notebook/tag-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,8 @@ import { usePaperStore } from "@/lib/paper/store";
 import { MathText } from "@/lib/problems/math-text";
 import { splitStemSections, stemSubproblemNumbers } from "@/lib/problems/subproblems";
 import { useProblemStore } from "@/lib/problems/store";
+import { sortBySourceOrder } from "@/lib/problems/order";
+import { navigationPosition, readNavigation } from "@/lib/problems/navigation";
 import {
   MASTERY_LABEL,
   MASTERY_DESCRIPTION,
@@ -37,7 +40,12 @@ import {
 } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/p/$id")({ component: ProblemPage });
+export const Route = createFileRoute("/p/$id")({
+  validateSearch: (search: Record<string, unknown>): { browse?: string } => ({
+    browse: typeof search.browse === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(search.browse) ? search.browse : undefined,
+  }),
+  component: ProblemPage,
+});
 
 function ProblemPage() {
   const { id } = Route.useParams();
@@ -69,11 +77,21 @@ function ProblemPage() {
     );
   }
 
-  return <ProblemDetail problem={problem} />;
+  return <ProblemDetail key={problem.id} problem={problem} />;
 }
 
 function ProblemDetail({ problem }: { problem: Problem }) {
   const navigate = useNavigate();
+  const { browse } = Route.useSearch();
+  const problems = useProblemStore((s) => s.problems);
+  const [snapshot, setSnapshot] = useState<string[] | null>(null);
+  useEffect(() => { setSnapshot(readNavigation(browse)); }, [browse]);
+  const navigation = useMemo(() => {
+    const ids = snapshot?.includes(problem.id) ? snapshot : sortBySourceOrder(
+      problems.filter((item) => item.collectionId === problem.collectionId),
+    ).map((item) => item.id);
+    return navigationPosition(ids, problem.id, problems.map((item) => item.id));
+  }, [snapshot, problems, problem.id, problem.collectionId]);
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
   const addToBasket = usePaperStore((s) => s.addToBasket);
@@ -168,6 +186,19 @@ function ProblemDetail({ problem }: { problem: Problem }) {
             返回
           </Link>
         </Button>
+        <nav aria-label="题目切换" className="flex shrink-0 items-center gap-1 sm:ml-auto">
+          <Button type="button" variant="ghost" size="icon" title="上一题" aria-label="上一题" disabled={!navigation.previous}
+            onClick={() => { if (navigation.previous) void navigate({ to: "/p/$id", params: { id: navigation.previous }, search: { browse } }); }}>
+            <ChevronLeft />
+          </Button>
+          <span aria-live="polite" className="w-28 text-center text-sm tabular-nums text-muted-foreground">
+            第 {navigation.index + 1} / {navigation.total} 题
+          </span>
+          <Button type="button" variant="ghost" size="icon" title="下一题" aria-label="下一题" disabled={!navigation.next}
+            onClick={() => { if (navigation.next) void navigate({ to: "/p/$id", params: { id: navigation.next }, search: { browse } }); }}>
+            <ChevronRight />
+          </Button>
+        </nav>
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -250,7 +281,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
                   stem={stem}
                   figures={problem.figures}
                   onRecrop={openCrop}
-                  onRemove={(figure) => void removeFigure(figure.id)}
+                  onRemove={(figure) => removeFigure(figure.id)}
                 />
               )}
             />
@@ -265,7 +296,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         {problem.figures
           .filter((figure) => !figure.subproblem || !subproblemNumbers.includes(figure.subproblem))
           .map((figure) => (
-            <FigureWithActions key={figure.id} figure={figure} onRecrop={openCrop} onRemove={(item) => void removeFigure(item.id)} />
+            <FigureWithActions key={figure.id} figure={figure} onRecrop={openCrop} onRemove={(item) => removeFigure(item.id)} />
           ))}
         {problem.sourceImage ? (
           <div className="flex justify-end border-t border-border px-5 py-3">
@@ -460,6 +491,7 @@ function EditToggle({
 function EditableTitle({ value, onSave }: { value: string; onSave: (next: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  useUnsavedEdit(editing && draft !== value);
   useEffect(() => {
     if (!editing) setDraft(value);
   }, [value, editing]);
@@ -509,7 +541,7 @@ function FigureWithActions({
 }: {
   figure: Figure;
   onRecrop: (figure: Figure) => void;
-  onRemove: (figure: Figure) => void;
+  onRemove: (figure: Figure) => void | Promise<void>;
 }) {
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
@@ -519,10 +551,12 @@ function FigureWithActions({
           <Scissors className="size-3.5" />
           重新框选
         </Button>
-        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive" onClick={() => onRemove(figure)}>
+        <ConfirmAction title={`删除图形${figure.title ? `“${figure.title}”` : ""}？`} description="此图形将从题目中移除，原题截图会保留。" onConfirm={() => onRemove(figure)}>
+        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive">
           <Trash2 className="size-3.5" />
           删除图形
         </Button>
+        </ConfirmAction>
       </div>
     </div>
   );
@@ -537,7 +571,7 @@ function StemWithFigures({
   stem: string;
   figures: Figure[];
   onRecrop: (figure: Figure) => void;
-  onRemove: (figure: Figure) => void;
+  onRemove: (figure: Figure) => void | Promise<void>;
 }) {
   const sections = splitStemSections(stem);
   return (
@@ -581,6 +615,7 @@ function EditableMath({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  useUnsavedEdit(editing && draft !== value);
   useEffect(() => {
     if (!editing) setDraft(value);
   }, [value, editing]);
@@ -649,4 +684,11 @@ function EditableMath({
       )}
     </div>
   );
+}
+
+function useUnsavedEdit(dirty: boolean) {
+  useBlocker({
+    shouldBlockFn: () => dirty && !window.confirm("有尚未保存的修改，确定放弃修改并离开？"),
+    enableBeforeUnload: dirty,
+  });
 }

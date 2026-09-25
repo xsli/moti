@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { appendTag, applyTagChanges, matchesAllTags, normalizeTag } from "./tags.ts";
+import { appendTag, applyTagChanges, matchesAllTags, normalizeTag, tagsForDisplay } from "./tags.ts";
 
 describe("problem tags", () => {
   it("normalizes and appends a typed draft", () => {
@@ -25,5 +25,10 @@ describe("problem tags", () => {
     assert.equal(matchesAllTags(["代数", "绝对值", "例题"], ["代数", "例题"]), true);
     assert.equal(matchesAllTags(["代数", "绝对值"], ["代数", "例题"]), false);
     assert.equal(matchesAllTags(["代数"], []), true);
+  });
+
+  it("keeps the example or exercise classification visible on cards", () => {
+    assert.deepEqual(tagsForDisplay(["排列", "绝对值", "最值", "习题"], 3), ["习题", "排列", "绝对值"]);
+    assert.deepEqual(tagsForDisplay(["例题", "方程组", "换元法"], 2), ["例题", "方程组"]);
   });
 });

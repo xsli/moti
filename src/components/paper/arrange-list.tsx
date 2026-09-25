@@ -3,6 +3,7 @@ import { type PointerEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LayoutPick } from "@/components/paper/layout-pick";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { chineseOrdinal, headingBlankPreset, headingRole, paperTotal, reorderRows, sectionCount, type PaperRow, type SheetKind } from "@/lib/paper/layout";
 import { applyLayoutToIds, idsFromRows } from "@/lib/paper/session";
@@ -270,16 +271,17 @@ export function ArrangeList({
                   </p>
                 )}
                 {isHeading ? (
+                  <ConfirmAction title="删除这个排版标题？" description="只删除标题，标题下的题目会保留。" onConfirm={() => onChange(rows.filter((item) => item.id !== row.id))}>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
                     className="mr-2 text-primary-foreground hover:bg-primary-foreground/15"
-                    onClick={() => onChange(rows.filter((item) => item.id !== row.id))}
                     aria-label="删除标题"
                   >
                     <Trash2 className="size-4" />
                   </Button>
+                  </ConfirmAction>
                 ) : null}
               </div>
             </li>

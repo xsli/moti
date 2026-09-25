@@ -92,7 +92,7 @@ export function coerceProblem(raw: unknown): Problem | null {
   };
 }
 
-export function coerceProblemList(raw: unknown, max = 400): Problem[] {
+export function coerceProblemList(raw: unknown, max = 5_000): Problem[] {
   if (!Array.isArray(raw)) return [];
   const out: Problem[] = [];
   for (const item of raw) {

@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useProblemNavigationKey } from "@/components/notebook/problem-navigation";
 import { Check, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,6 +11,7 @@ import {
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { MathText } from "@/lib/problems/math-text";
 import { formatLoggedDate } from "@/lib/problems/dates";
+import { tagsForDisplay } from "@/lib/problems/tags";
 import { MASTERY_LABEL, SUBJECT_LABEL, type Mastery, type Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +30,7 @@ export function ProblemCard({
   onMasteryChange?: (mastery: Mastery) => void;
   layout?: "card" | "row";
 }) {
+  const browse = useProblemNavigationKey();
   const figure = problem.figures.find((f) => f.image || f.svg);
   const body =
     layout === "row" ? (
@@ -64,7 +67,7 @@ export function ProblemCard({
             ) : null}
             <span>·</span>
             <span>{SUBJECT_LABEL[problem.subject]}</span>
-            {problem.tags.slice(0, 2).map((tag) => (
+            {tagsForDisplay(problem.tags, 2).map((tag) => (
               <Badge key={tag} variant="outline">
                 {tag}
               </Badge>
@@ -115,7 +118,7 @@ export function ProblemCard({
               <span className="text-xs text-muted-foreground">原序 {problem.sourceOrder}</span>
             ) : null}
             <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
-            {problem.tags.slice(0, 3).map((tag) => (
+            {tagsForDisplay(problem.tags, 3).map((tag) => (
               <Badge key={tag} variant="outline">
                 {tag}
               </Badge>
@@ -163,6 +166,7 @@ export function ProblemCard({
         <Link
           to="/p/$id"
           params={{ id: problem.id }}
+          search={{ browse }}
           className="flex min-w-0 flex-1 items-center gap-3 self-stretch"
         >
           {body}
@@ -175,7 +179,7 @@ export function ProblemCard({
   if (layout === "card" && onMasteryChange) {
     return (
       <div className={cn(frame, "grid grid-rows-[auto_1fr]")}>
-        <Link to="/p/$id" params={{ id: problem.id }} className="contents">
+        <Link to="/p/$id" params={{ id: problem.id }} search={{ browse }} className="contents">
           {body}
         </Link>
         <div className="z-10 col-start-1 row-start-2 mr-4 mt-4 justify-self-end">
@@ -186,7 +190,7 @@ export function ProblemCard({
   }
 
   return (
-    <Link to="/p/$id" params={{ id: problem.id }} className={frame}>
+    <Link to="/p/$id" params={{ id: problem.id }} search={{ browse }} className={frame}>
       {body}
     </Link>
   );

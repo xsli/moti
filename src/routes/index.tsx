@@ -1,14 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Camera, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, Camera, ChevronRight, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { DateMenu, DifficultyMenu, FilterMenu } from "@/components/notebook/filter-menu";
 import { SortableProblems } from "@/components/notebook/sortable-problems";
+import { ProblemNavigationScope } from "@/components/notebook/problem-navigation";
 import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { TagFilter } from "@/components/notebook/tag-filter";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import {
   Dialog,
   DialogContent,
@@ -30,17 +32,19 @@ import {
 } from "@/lib/problems/collections";
 import { idsInSourceOrder, moveId, sortBySourceOrder, spliceVisibleOrder } from "@/lib/problems/order";
 import { applyTagChanges, matchesAllTags } from "@/lib/problems/tags";
-import { formatLoggedDate, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
+import { matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { solveProblem } from "@/lib/ai/extract";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
 import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
+import { folderSummaries } from "@/lib/problems/folders";
 
 export const Route = createFileRoute("/")({
-  validateSearch: (search: Record<string, unknown>): { g?: string } => {
+  validateSearch: (search: Record<string, unknown>): { g?: string; f?: string } => {
     const g = typeof search.g === "string" ? search.g : "";
-    return g ? { g } : {};
+    if (g) return { g };
+    return typeof search.f === "string" ? { f: search.f.trim() } : {};
   },
   component: Home,
 });
@@ -58,7 +62,7 @@ function readLayout(): BrowseLayout {
 }
 
 function Home() {
-  const { g = "" } = Route.useSearch();
+  const { g = "", f } = Route.useSearch();
   const problems = useProblemStore((s) => s.problems);
   const collections = useProblemStore((s) => s.collections);
   const deleteCollection = useProblemStore((s) => s.deleteCollection);
@@ -88,11 +92,13 @@ function Home() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tagOpen, setTagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
+  const [masteryOpen, setMasteryOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [folderRename, setFolderRename] = useState<{ from: string; to: string; others: number } | null>(null);
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [commonTags, setCommonTags] = useState<string[]>([]);
   const [batchGroupId, setBatchGroupId] = useState("");
+  const [batchMastery, setBatchMastery] = useState<Mastery | "">("");
   const [batchSolveProgress, setBatchSolveProgress] = useState<{ done: number; total: number; failed: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [packing, setPacking] = useState(false);
@@ -110,9 +116,8 @@ function Home() {
     setDifficultyFilter([]);
     setSelecting(false);
     setSelected(new Set());
-  }, [g]);
+  }, [g, f]);
 
-  const dueCount = useMemo(() => selectDueProblems(problems).length, [problems]);
   const overviewProblems = useMemo(() => {
     if (!g || g === "all") return problems;
     if (g === "ungrouped") return problems.filter((problem) => !problem.collectionId);
@@ -217,6 +222,21 @@ function Home() {
       const name = collections.find((item) => item.id === batchGroupId)?.name;
       toast.success(name ? `已改到「${name}」` : "已移到未分组");
       setGroupOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyMastery() {
+    if (!selectedCount || !batchMastery) return;
+    setBusy(true);
+    try {
+      for (const problem of problems) {
+        if (!selected.has(problem.id) || problem.mastery === batchMastery) continue;
+        await updateProblem(problem.id, { mastery: batchMastery });
+      }
+      toast.success(`已改为${MASTERY_LABEL[batchMastery]}`);
+      setMasteryOpen(false);
     } finally {
       setBusy(false);
     }
@@ -329,9 +349,10 @@ function Home() {
 
   return (
     <div className="flex flex-col gap-6">
+      {f === undefined ? (
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">概览</h1>
+          <h1 className="font-display text-2xl font-semibold">概览</h1>
           <div className="flex items-center">
             <input
               ref={importRef}
@@ -372,23 +393,26 @@ function Home() {
           <Stat label="已掌握" value={overviewMasteredCount} />
         </div>
       </section>
+      ) : null}
 
       <BasketBar />
 
       {!g ? (
         <GroupHome
+          key={f === undefined ? "home" : `folder:${f}`}
+          folder={f}
           problems={problems}
           collections={collections}
-          dueCount={dueCount}
           onCreate={async () => {
-            const id = await addCollection({ name: defaultCollectionName(), kind: "exam" });
+            const id = await addCollection({ name: defaultCollectionName(), kind: "exam", groupName: f ?? "" });
             navigate({ to: "/", search: { g: id } });
           }}
-          onDelete={(id) => void deleteCollection(id)}
+          onDelete={deleteCollection}
           onReorder={(ids) => void reorderCollections(ids)}
           onRenameFolder={(from, to) => {
             void renameFolder(from, to).then((n) => {
               toast.success(`已把 ${n} 个小组改到「${to || "未分大组"}」`);
+              if (f !== undefined) void navigate({ to: "/", search: { f: to.trim().slice(0, 40) }, replace: true });
             });
           }}
         />
@@ -397,9 +421,9 @@ function Home() {
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="ghost" size="sm">
-            <Link to="/" search={{ g: "" }}>
+            <Link to="/" search={currentCol ? { f: currentCol.groupName.trim() } : {}}>
               <ArrowLeft className="size-4" />
-              分组
+              {currentCol ? currentCol.groupName.trim() || UNGROUPED_FOLDER : "全部大组"}
             </Link>
           </Button>
           {g === "all" || g === "ungrouped" || !currentCol ? (
@@ -593,6 +617,19 @@ function Home() {
               <Button
                 size="sm"
                 variant="outline"
+                disabled={!selectedCount}
+                onClick={() => {
+                  const states = problems.filter((p) => selected.has(p.id)).map((p) => p.mastery);
+                  const same = states.length > 0 && states.every((mastery) => mastery === states[0]);
+                  setBatchMastery(same ? states[0] : "");
+                  setMasteryOpen(true);
+                }}
+              >
+                改掌握状态
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 className="text-destructive"
                 disabled={!selectedCount}
                 onClick={() => setDeleteOpen(true)}
@@ -724,6 +761,36 @@ function Home() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={masteryOpen} onOpenChange={setMasteryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改掌握状态</DialogTitle>
+            <DialogDescription>把已选的 {selectedCount} 道题统一改为：</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-2">
+            {(["new", "reviewing", "mastered"] as Mastery[]).map((mastery) => (
+              <Button
+                key={mastery}
+                type="button"
+                variant={batchMastery === mastery ? "default" : "outline"}
+                aria-pressed={batchMastery === mastery}
+                onClick={() => setBatchMastery(mastery)}
+              >
+                {MASTERY_LABEL[mastery]}
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMasteryOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void applyMastery()} disabled={busy || !batchMastery}>
+              完成
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -820,6 +887,7 @@ function ProblemSections({
 
   if (sections.length <= 1) {
     return (
+      <ProblemNavigationScope ids={problems.map((problem) => problem.id)}>
       <SortableProblems
         problems={problems}
         layout={layout}
@@ -829,10 +897,12 @@ function ProblemSections({
         onMasteryChange={onMasteryChange}
         onReorder={onReorder}
       />
+      </ProblemNavigationScope>
     );
   }
 
   return (
+    <ProblemNavigationScope ids={sections.flatMap((section) => section.items.map((problem) => problem.id))}>
     <div className="flex flex-col gap-8">
       {sections.map((section) => (
         <section key={section.key} className="flex flex-col gap-3">
@@ -851,198 +921,164 @@ function ProblemSections({
         </section>
       ))}
     </div>
+    </ProblemNavigationScope>
   );
 }
 
 function GroupHome({
+  folder,
   problems,
   collections,
-  dueCount,
   onCreate,
   onDelete,
   onReorder,
   onRenameFolder,
 }: {
+  folder?: string;
   problems: Problem[];
   collections: Collection[];
-  dueCount: number;
   onCreate: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onReorder: (ids: string[]) => void;
   onRenameFolder: (from: string, to: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const now = Date.now();
-  const ungrouped = problems.filter((p) => !p.collectionId);
-  const dueOf = (ids: Set<string> | "none" | "all") =>
-    problems.filter((p) => {
-      if (p.mastery === "mastered" || p.nextReviewAt > now) return false;
-      if (ids === "all") return true;
-      if (ids === "none") return !p.collectionId;
-      return !!p.collectionId && ids.has(p.collectionId);
-    }).length;
-
+  const summaries = useMemo(() => folderSummaries(collections, problems), [collections, problems]);
   const q = query.trim().toLowerCase();
-  const filtered = q
-    ? collections.filter((item) => item.name.toLowerCase().includes(q))
-    : collections;
-
-  const latest = (id?: string) => {
-    const list = id ? problems.filter((p) => p.collectionId === id) : problems.filter((p) => !p.collectionId);
-    return [...list].sort((a, b) => b.createdAt - a.createdAt)[0];
-  };
-
-  const folders = Array.from(
-    new Set(filtered.map((item) => item.groupName.trim()).filter(Boolean)),
-  ).sort((a, b) => a.localeCompare(b, "zh"));
-  if (filtered.some((item) => !item.groupName.trim())) folders.push("");
-
-  const clusters = folders.map((folder) => ({
-    folder,
-    kinds: KIND_ORDER.map((kind) => ({
-      kind,
-      items: sortCollectionsByOrder(
-        filtered.filter((item) => (item.groupName.trim() || "") === folder && item.kind === kind),
-        (item) => latest(item.id)?.createdAt ?? 0,
-      ),
-    })).filter((cluster) => cluster.items.length),
-  })).filter((group) => group.kinds.length);
+  const inFolder = folder !== undefined;
+  const folderCollections = collections.filter((item) => item.groupName.trim() === folder);
+  const filtered = folderCollections.filter((item) => item.name.toLowerCase().includes(q));
+  const ungrouped = problems.filter((p) => !p.collectionId);
+  const summary = summaries.find((item) => item.name === folder);
+  const latestDates = useMemo(() => {
+    const dates = new Map<string, number>();
+    for (const problem of problems) {
+      if (problem.collectionId) dates.set(problem.collectionId, Math.max(dates.get(problem.collectionId) ?? 0, problem.createdAt));
+    }
+    return dates;
+  }, [problems]);
+  const clusters = KIND_ORDER.map((kind) => ({
+    kind,
+    items: sortCollectionsByOrder(
+      filtered.filter((item) => item.kind === kind),
+      (item) => latestDates.get(item.id) ?? 0,
+    ),
+  })).filter((cluster) => cluster.items.length);
+  const visibleFolders = summaries.filter((item) => (item.name || UNGROUPED_FOLDER).toLowerCase().includes(q));
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-1">
-        {searchOpen || query ? (
-          <div className="flex h-8 items-center gap-1 rounded-full bg-secondary/70 px-2">
-            <Search className="size-3.5 shrink-0 text-muted-foreground" />
-            <input
-              ref={searchRef}
-              value={query}
-              autoFocus
-              onChange={(e) => setQuery(e.target.value)}
-              onBlur={() => {
-                if (!query.trim()) setSearchOpen(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setQuery("");
-                  setSearchOpen(false);
-                }
-              }}
-              className="w-28 bg-transparent text-sm text-fg outline-none"
-              aria-label="搜索分组"
-            />
-          </div>
-        ) : (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-8 min-h-8 text-muted-foreground"
-            aria-label="搜索分组"
-            onClick={() => {
-              setSearchOpen(true);
-              window.setTimeout(() => searchRef.current?.focus(), 0);
-            }}
-          >
-            <Search className="size-4" />
-          </Button>
-        )}
-        <Button size="icon" variant="ghost" className="size-8 min-h-8 text-muted-foreground" aria-label="新建组" onClick={onCreate}>
+      {inFolder ? (
+        <>
+          <nav aria-label="分组路径">
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/" search={{}}><ArrowLeft className="size-4" />全部大组</Link>
+            </Button>
+          </nav>
+          <FolderHeading
+            name={folder}
+            summary={summary ?? { total: 0, due: 0, mastered: 0 }}
+            onRename={(next) => onRenameFolder(folder, next)}
+          />
+        </>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={inFolder ? "搜索本组小组…" : "搜索大组…"}
+            aria-label={inFolder ? "搜索本组小组" : "搜索大组"}
+            className="pl-9"
+          />
+        </div>
+        <Button size="icon" variant="outline" title="新建小组" aria-label="新建小组" onClick={onCreate}>
           <Plus className="size-4" />
         </Button>
+        {!inFolder ? (
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/" search={{ g: "all" }}>全部题目 {problems.length}<ChevronRight className="size-4" /></Link>
+            </Button>
+            {ungrouped.length ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/" search={{ g: "ungrouped" }}>未分组 {ungrouped.length}<ChevronRight className="size-4" /></Link>
+              </Button>
+            ) : null}
+          </div>
+        ) : <span className="ml-auto text-sm text-muted-foreground">{q ? filtered.length : folderCollections.length} 个小组</span>}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Link
-          to="/"
-          search={{ g: "all" }}
-          className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-colors hover:bg-secondary/40"
-        >
-          <p className="text-xs text-muted-foreground">全部</p>
-          <p className="mt-1 font-display text-lg font-semibold">{problems.length} 道</p>
-          <p className="mt-1 text-xs text-muted-foreground">待复习 {dueCount}</p>
-        </Link>
-        {ungrouped.length ? (
-          <Link
-            to="/"
-            search={{ g: "ungrouped" }}
-            className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-colors hover:bg-secondary/40"
-          >
-            <p className="text-xs text-muted-foreground">未分组</p>
-            <p className="mt-1 font-display text-lg font-semibold">{ungrouped.length} 道</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              待复习 {dueOf("none")}
-              {latest() ? ` · 最近 ${formatLoggedDate(latest()!.createdAt)}` : ""}
-            </p>
-            {latest() ? <p className="mt-2 truncate text-sm text-fg/80">{latest()!.title}</p> : null}
-          </Link>
-        ) : null}
-      </div>
-      {clusters.map((group) => (
-        <section key={group.folder || "none"} className="flex flex-col gap-4">
-          <FolderHeading name={group.folder} onRename={(next) => onRenameFolder(group.folder, next)} />
-          {group.kinds.map((cluster) => (
-        <section key={`${group.folder}-${cluster.kind}`} className="flex flex-col gap-3">
-          <h3 className="text-xs font-medium tracking-wider text-muted-foreground">
-            {COLLECTION_KIND_LABEL[cluster.kind]}
-          </h3>
-          <CollectionGrid
-            items={cluster.items}
-            problems={problems}
-            latest={latest}
-            dueOf={(id) => dueOf(new Set([id]))}
-            onDelete={onDelete}
-            onReorder={q ? undefined : onReorder}
-          />
-        </section>
-          ))}
+      {!inFolder ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visibleFolders.map((item) => {
+            const percent = item.total ? Math.round(item.mastered / item.total * 100) : 0;
+            return (
+              <Link key={item.name} to="/" search={{ f: item.name }}
+                className="group flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-surface p-5 transition-colors hover:bg-secondary/40 focus-visible:outline-2 focus-visible:outline-primary">
+                <div className="flex items-start gap-3">
+                  <FolderOpen className="mt-1 size-5 shrink-0 text-primary" />
+                  <h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{item.name || UNGROUPED_FOLDER}</h2>
+                  <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                </div>
+                <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span>{item.groups} 个小组</span><span>{item.total} 道题</span>
+                </div>
+                <div>
+                  <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
+                    <span>待复习 {item.due} · 已掌握 {item.mastered}</span>
+                    <span className="tabular-nums">掌握率 {percent}%</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
+                    <div className="h-full rounded-full bg-mastered" style={{ width: `${percent}%` }} />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      ) : clusters.map((cluster) => (
+        <section key={cluster.kind} className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium text-muted-foreground">{COLLECTION_KIND_LABEL[cluster.kind]}</h3>
+          <CollectionList items={cluster.items} problems={problems} onDelete={onDelete} onReorder={q ? undefined : onReorder} />
         </section>
       ))}
-      {q && !filtered.length ? (
-        <div className="rounded-xl bg-surface px-6 py-10 text-center shadow-[var(--shadow-border)]">
-          <p className="text-sm text-muted-foreground">没有叫这个名字的组</p>
-        </div>
-      ) : null}
-      {!collections.length && !ungrouped.length && !problems.length ? (
-        <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)]">
+      {(inFolder ? !filtered.length : !visibleFolders.length) ? (
+        <div className="py-12 text-center">
           <FolderOpen className="mx-auto size-8 text-muted-foreground" />
-          <p className="mt-3 font-display text-lg font-semibold">还没有分组</p>
-          <Button asChild className="mt-4">
-            <Link to="/capture">去拍题</Link>
-          </Button>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {q ? "没有匹配的分组" : inFolder ? "这个大组还没有小组" : "还没有大组"}
+          </p>
+          {!q ? <Button className="mt-4" variant="outline" onClick={onCreate}><Plus className="size-4" />新建小组</Button> : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function CollectionGrid({
+function CollectionList({
   items,
   problems,
-  latest,
-  dueOf,
   onDelete,
   onReorder,
 }: {
   items: Collection[];
   problems: Problem[];
-  latest: (id: string) => Problem | undefined;
-  dueOf: (id: string) => number;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onReorder?: (ids: string[]) => void;
 }) {
-  const gridRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const sortable = Boolean(onReorder) && items.length > 1;
 
-  function dropIndex(clientX: number, clientY: number) {
-    const nodes = [...(gridRef.current?.querySelectorAll("[data-collection-row]") ?? [])];
-    for (let index = 0; index < nodes.length; index += 1) {
-      const box = nodes[index].getBoundingClientRect();
-      if (clientY < box.top || (clientY <= box.bottom && clientX < box.left + box.width / 2)) return index;
-    }
-    return nodes.length;
+  function dropIndex(clientY: number) {
+    const nodes = [...(listRef.current?.querySelectorAll("[data-collection-row]") ?? [])];
+    const index = nodes.findIndex((node) => {
+      const box = node.getBoundingClientRect();
+      return clientY < box.top + box.height / 2;
+    });
+    return index < 0 ? nodes.length : index;
   }
 
   function onGripPointerDown(event: PointerEvent<HTMLButtonElement>, id: string) {
@@ -1051,11 +1087,6 @@ function CollectionGrid({
     event.currentTarget.setPointerCapture(event.pointerId);
     setDraggingId(id);
     setOverIndex(items.findIndex((item) => item.id === id));
-  }
-
-  function onGripPointerMove(event: PointerEvent<HTMLButtonElement>) {
-    if (!draggingId) return;
-    setOverIndex(dropIndex(event.clientX, event.clientY));
   }
 
   function onGripPointerUp() {
@@ -1068,68 +1099,52 @@ function CollectionGrid({
   }
 
   return (
-    <div ref={gridRef} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div ref={listRef} className="border-y border-border">
+      <div aria-hidden className="hidden grid-cols-[2rem_minmax(0,1fr)_4rem_5rem_9rem_2rem] items-center gap-3 border-b border-border py-2 text-xs text-muted-foreground sm:grid">
+        <span /><span>小组</span><span className="text-right">题数</span><span className="text-right">待复习</span><span className="text-right">掌握比例</span><span />
+      </div>
       {items.map((item, index) => {
         const groupProblems = problems.filter((problem) => problem.collectionId === item.id);
         const count = groupProblems.length;
+        const due = selectDueProblems(groupProblems).length;
         const mastered = groupProblems.filter((problem) => problem.mastery === "mastered").length;
-        const masteryPercent = count ? Math.round((mastered / count) * 100) : 0;
-        const recent = latest(item.id);
+        const percent = count ? Math.round(mastered / count * 100) : 0;
         return (
-          <div
-            key={item.id}
-            data-collection-row={item.id}
+          <div key={item.id} data-collection-row={item.id}
             className={cn(
-              "relative rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-[opacity,box-shadow]",
+              "relative flex items-center gap-2 border-b border-border py-1 last:border-b-0 hover:bg-secondary/30 sm:gap-3",
               draggingId === item.id && "opacity-60",
-              draggingId && overIndex === index && draggingId !== item.id && "ring-2 ring-primary",
-            )}
-          >
-            <Link to="/" search={{ g: item.id }} className="block">
-              <p className={cn("mt-0 font-display text-lg font-semibold", sortable && "pl-7 pr-8")}>{item.name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {count} 道 · 待复习 {dueOf(item.id)}
-                {recent ? ` · ${formatLoggedDate(recent.createdAt)}` : ""}
-              </p>
-              <div className="mt-3">
-                <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                  <span>掌握比例</span>
-                  <span className="tabular-nums">{mastered}/{count} · {masteryPercent}%</span>
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-rule">
-                  <div
-                    className="h-full rounded-full bg-mastered transition-[width]"
-                    style={{ width: `${masteryPercent}%` }}
-                  />
-                </div>
-              </div>
-              {recent ? (
-                <p className="mt-2 truncate text-sm text-fg/80">{recent.title}</p>
-              ) : (
-                <p className="mt-2 text-sm text-muted-foreground">还没有题目</p>
-              )}
-            </Link>
-            {sortable ? (
-              <button
-                type="button"
-                aria-label={`拖动${item.name}排序`}
-                className="absolute left-2 top-2 grid size-8 touch-none place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-fg active:cursor-grabbing"
-                onPointerDown={(event) => onGripPointerDown(event, item.id)}
-                onPointerMove={onGripPointerMove}
-                onPointerUp={onGripPointerUp}
-                onPointerCancel={onGripPointerUp}
-                onClick={(event) => event.preventDefault()}
-              >
-                <GripVertical className="size-4" />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="absolute right-3 top-3 text-xs text-muted-foreground hover:text-destructive"
-              onClick={() => onDelete(item.id)}
-            >
-              删除
+              draggingId && overIndex === index && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-primary",
+              draggingId && overIndex === items.length && index === items.length - 1 && "after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary",
+            )}>
+            <button type="button" disabled={!sortable} aria-label={`拖动${item.name}排序`} title="拖动排序"
+              className="grid size-8 shrink-0 touch-none place-items-center rounded-md text-muted-foreground hover:bg-secondary active:cursor-grabbing disabled:invisible"
+              onPointerDown={(event) => onGripPointerDown(event, item.id)}
+              onPointerMove={(event) => { if (draggingId) setOverIndex(dropIndex(event.clientY)); }}
+              onPointerUp={onGripPointerUp}
+              onPointerCancel={() => { setDraggingId(null); setOverIndex(null); }}>
+              <GripVertical className="size-4" />
             </button>
+            <Link to="/" search={{ g: item.id }}
+              className="grid min-w-0 flex-1 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-[minmax(0,1fr)_4rem_5rem_9rem]">
+              <span className="col-span-3 break-words text-base font-medium sm:col-span-1">{item.name}</span>
+              <span className="text-xs tabular-nums text-muted-foreground sm:text-right sm:text-sm">{count}<span className="sm:hidden"> 道</span><span className="sr-only hidden sm:inline"> 道题</span></span>
+              <span className="text-xs tabular-nums text-muted-foreground sm:text-right sm:text-sm"><span className="sm:hidden">待复习 </span><span className="sr-only hidden sm:inline">待复习 </span>{due}</span>
+              <span className="min-w-0">
+                <span className="mb-1 flex justify-end gap-1 text-xs tabular-nums text-muted-foreground"><span className="sr-only">已掌握 </span>{mastered}/{count} · {percent}%</span>
+                <span className="block h-1 overflow-hidden rounded-full bg-rule">
+                  <span className="block h-full rounded-full bg-mastered" style={{ width: `${percent}%` }} />
+                </span>
+              </span>
+            </Link>
+            <ConfirmAction title={`删除分组“${item.name}”？`}
+              description={count ? `组内 ${count} 道题会保留并移至“未分组”。分组删除后无法恢复。` : "这是一个空分组，删除后无法恢复。"}
+              onConfirm={() => onDelete(item.id)}>
+              <Button type="button" variant="ghost" size="icon" title="删除小组" aria-label={`删除${item.name}`}
+                className="size-8 min-h-8 shrink-0 text-muted-foreground hover:text-destructive">
+                <Trash2 className="size-3.5" />
+              </Button>
+            </ConfirmAction>
           </div>
         );
       })}
@@ -1137,9 +1152,18 @@ function CollectionGrid({
   );
 }
 
-function FolderHeading({ name, onRename }: { name: string; onRename: (next: string) => void }) {
+function FolderHeading({
+  name,
+  summary,
+  onRename,
+}: {
+  name: string;
+  summary: { total: number; due: number; mastered: number };
+  onRename: (next: string) => void;
+}) {
   const [text, setText] = useState(name);
   const [editing, setEditing] = useState(false);
+  const masteryPercent = summary.total ? Math.round((summary.mastered / summary.total) * 100) : 0;
   useEffect(() => {
     setText(name);
   }, [name]);
@@ -1166,6 +1190,7 @@ function FolderHeading({ name, onRename }: { name: string; onRename: (next: stri
             }
           }}
           placeholder={UNGROUPED_FOLDER}
+          maxLength={40}
           className="h-9 max-w-xs font-display text-base font-semibold"
           aria-label="大组名称"
         />
@@ -1187,17 +1212,33 @@ function FolderHeading({ name, onRename }: { name: string; onRename: (next: stri
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <h2 className="font-display text-lg font-semibold">{name || UNGROUPED_FOLDER}</h2>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="size-7 min-h-7 text-muted-foreground"
-        aria-label="改名"
-        onClick={() => setEditing(true)}
-      >
-        <Pencil className="size-3.5" />
-      </Button>
+    <div className="flex flex-wrap items-start gap-x-5 gap-y-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <h1 className="break-words font-display text-xl font-semibold">{name || UNGROUPED_FOLDER}</h1>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 min-h-7 shrink-0 text-muted-foreground"
+          aria-label="改名"
+          onClick={() => setEditing(true)}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+      </div>
+      <div className="w-full min-w-0 max-w-sm basis-full pt-0.5 sm:min-w-64 sm:flex-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>共 {summary.total} 道</span>
+          <span>待复习 {summary.due}</span>
+          <span>已掌握 {summary.mastered}</span>
+          <span className="ml-auto tabular-nums">{masteryPercent}%</span>
+        </div>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-rule">
+          <div
+            className="h-full rounded-full bg-mastered transition-[width]"
+            style={{ width: `${masteryPercent}%` }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

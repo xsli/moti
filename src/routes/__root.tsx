@@ -55,10 +55,30 @@ function RootComponent() {
 
 function LocalApp() {
   const hydrate = useProblemStore((state) => state.hydrate);
+  const syncFromCache = useProblemStore((state) => state.syncFromCache);
 
   useEffect(() => {
     void hydrate(LOCAL_USER_ID);
   }, [hydrate]);
+
+  useEffect(() => {
+    const sync = () => syncFromCache();
+    const syncVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key?.startsWith("moti-cloud-cache-v1:")) sync();
+    };
+
+    window.addEventListener("focus", sync);
+    window.addEventListener("storage", syncStorage);
+    document.addEventListener("visibilitychange", syncVisible);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("storage", syncStorage);
+      document.removeEventListener("visibilitychange", syncVisible);
+    };
+  }, [syncFromCache]);
 
   return (
     <AppShell>

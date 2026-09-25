@@ -21,6 +21,7 @@ interface ProblemState {
   problems: Problem[];
   collections: Collection[];
   hydrate: (userId: string) => Promise<void>;
+  syncFromCache: () => void;
   loadProblem: (id: string) => Promise<void>;
   reset: () => void;
   addProblem: (
@@ -91,7 +92,7 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       const notebook = await Promise.race([
         getNotebook(),
         new Promise<never>((_, reject) => {
-          globalThis.setTimeout(() => reject(new Error("本子打开超时")), 8000);
+          globalThis.setTimeout(() => reject(new Error("本子打开超时")), 30_000);
         }),
       ]);
       const local = cached.problems.length ? cached.problems : get().problems.filter((p) => p.sourceKind !== "sample");
@@ -170,6 +171,26 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
     } finally {
       if (hydrateInFlight === userId) hydrateInFlight = null;
     }
+  },
+  syncFromCache: () => {
+    const state = get();
+    if (!state.userId) return;
+    const cached = readCachedNotebook(state.userId);
+    if (!cached.problems.length && !cached.collections.length) return;
+
+    // A browser cache can be older or incomplete (for example, one written by
+    // an earlier version that kept only 400 rows). Never let a focus event use
+    // that partial snapshot to discard records already loaded from the DB.
+    const problems = mergeProblems(state.problems, cached.problems);
+
+    set({
+      problems,
+      collections: cached.collections.length
+        ? mergeCollections(state.collections, cached.collections)
+        : state.collections,
+      status: "ready",
+      error: null,
+    });
   },
   loadProblem: async (id) => {
     try {

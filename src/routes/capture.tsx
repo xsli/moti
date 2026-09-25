@@ -8,6 +8,7 @@ import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -735,10 +736,18 @@ function CapturePage() {
               PDF
             </button>
           </div>
-          <button
-            type="button"
-            disabled={Boolean(pdfProgress)}
-            onClick={() => inputRef.current?.click()}
+          <div
+            role="button"
+            tabIndex={pdfProgress ? -1 : 0}
+            aria-disabled={Boolean(pdfProgress)}
+            onClick={() => { if (!pdfProgress) inputRef.current?.click(); }}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget || pdfProgress) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                inputRef.current?.click();
+              }
+            }}
             onDragOver={(e) => {
               e.preventDefault();
               setDragging(true);
@@ -778,17 +787,15 @@ function CapturePage() {
                         第 {i + 1} 页
                       </span>
                     ) : null}
-                    <span
-                      role="button"
-                      tabIndex={0}
+                    <ConfirmAction title={`移除第 ${i + 1} 张待识别图片？`} description="此图片将不再参与识别，原文件不会删除。" confirmLabel="确认移除" onConfirm={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}>
+                    <button
+                      type="button"
+                      aria-label={`移除第 ${i + 1} 张待识别图片`}
                       className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full bg-fg/80 text-primary-foreground"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImages((prev) => prev.filter((_, idx) => idx !== i));
-                      }}
                     >
                       <X className="size-3.5" />
-                    </span>
+                    </button>
+                    </ConfirmAction>
                   </span>
                 ))}
               </div>
@@ -811,7 +818,7 @@ function CapturePage() {
                 </span>
               </>
             )}
-          </button>
+          </div>
           <input
             ref={inputRef}
             type="file"
@@ -1172,14 +1179,15 @@ function ReviewForm({
                         图 {figureIndex + 1} ·{" "}
                         {figure.subproblem ? `（${figure.subproblem}）` : "整题后"}
                       </button>
+                      <ConfirmAction title={`删除图 ${figureIndex + 1}？`} description="此图形将从当前识别结果中移除，原题图片会保留。" onConfirm={() => removeFigure(figureIndex)}>
                       <button
                         type="button"
                         className="grid size-8 place-items-center text-muted-foreground hover:text-destructive"
                         aria-label={`删除图 ${figureIndex + 1}`}
-                        onClick={() => removeFigure(figureIndex)}
                       >
                         <X className="size-3.5" />
                       </button>
+                      </ConfirmAction>
                     </div>
                   ))}
                 </div>

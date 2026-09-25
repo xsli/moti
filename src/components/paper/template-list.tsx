@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { FileStack, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { idsFromRows } from "@/lib/paper/session";
 import { usePaperStore } from "@/lib/paper/store";
 import { useProblemStore } from "@/lib/problems/store";
@@ -35,15 +36,16 @@ export function TemplateList() {
                   打开
                 </Link>
               </Button>
+              <ConfirmAction title={`删除模板“${tpl.name}”？`} description="模板删除后无法恢复，本子里的题目不会删除。" onConfirm={() => deleteTemplate(tpl.id)}>
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
                 aria-label="删除模板"
-                onClick={() => deleteTemplate(tpl.id)}
               >
                 <Trash2 className="size-4" />
               </Button>
+              </ConfirmAction>
             </li>
           );
         })}

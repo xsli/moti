@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ShoppingBasket, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { usePaperStore } from "@/lib/paper/store";
 import { useProblemStore } from "@/lib/problems/store";
 
@@ -19,9 +20,11 @@ export function BasketBar() {
       <div className="flex flex-wrap items-center gap-2">
         <ShoppingBasket className="size-4 text-muted-foreground" />
         <span className="text-sm">组卷篮 {items.length} 道</span>
-        <button type="button" className="text-sm text-muted-foreground hover:text-fg" onClick={clearBasket}>
+        <ConfirmAction title={`清空组卷篮中的 ${items.length} 道题？`} description="只清空组卷篮，本子里的题目不会删除。" confirmLabel="确认清空" onConfirm={clearBasket}>
+        <button type="button" className="text-sm text-muted-foreground hover:text-fg">
           清空
         </button>
+        </ConfirmAction>
         <Button asChild size="sm" className="ml-auto" disabled={!items.length}>
           <Link to="/paper" search={{ ids: items.map((p) => p.id).join(","), tpl: "" }}>
             用篮子排版
@@ -31,16 +34,16 @@ export function BasketBar() {
       {items.length ? (
         <div className="flex flex-wrap gap-1.5">
           {items.map((p) => (
+            <ConfirmAction key={p.id} title={`移出“${p.title}”？`} description="只从组卷篮移除，本子里的题目不会删除。" confirmLabel="确认移出" onConfirm={() => removeFromBasket(p.id)}>
             <button
-              key={p.id}
               type="button"
               className="inline-flex h-7 max-w-40 items-center gap-1 rounded-full bg-secondary pl-2.5 pr-1 text-xs"
-              onClick={() => removeFromBasket(p.id)}
               title="移出篮子"
             >
               <span className="truncate">{p.title}</span>
               <X className="size-3 shrink-0 text-muted-foreground" />
             </button>
+            </ConfirmAction>
           ))}
         </div>
       ) : null}
