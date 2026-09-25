@@ -137,6 +137,10 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
         await pushAgain({ data: { problems: strippedOnServer } });
       }
 
+      // Detail requests can finish before the list request. Keep their media
+      // when the later lightweight list is applied, without adding stale rows.
+      const listedIds = new Set(problems.map((problem) => problem.id));
+      problems = mergeProblems(problems, get().problems.filter((problem) => listedIds.has(problem.id)));
       persist(userId, problems.length ? problems : local, collections.length ? collections : localCols);
       set({
         problems: problems.length ? problems : local,
@@ -254,8 +258,8 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
     set({ problems: next });
     persist(get().userId, next, get().collections);
     try {
-      const { upsertProblem } = await import("./api");
-      await upsertProblem({ data: updated });
+      const { patchProblemFn } = await import("./api");
+      await patchProblemFn({ data: { id, patch } });
       set({ syncedAt: Date.now() });
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -397,10 +401,11 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       .map((id) => next.find((item) => item.id === id))
       .filter(Boolean) as Problem[];
     try {
-      const { pushProblems } = await import("./api");
-      const chunk = 40;
-      for (let i = 0; i < changed.length; i += chunk) {
-        await pushProblems({ data: { problems: changed.slice(i, i + chunk) } });
+      const { patchProblemFn } = await import("./api");
+      for (const item of changed) {
+        await patchProblemFn({ data: { id: item.id, patch: {
+          sourceOrder: item.sourceOrder, sourceBatchId: item.sourceBatchId,
+        } } });
       }
       set({ syncedAt: Date.now() });
     } catch (error) {

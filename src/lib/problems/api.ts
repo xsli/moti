@@ -4,6 +4,7 @@ import { localUserMiddleware } from "@/lib/local-user";
 import { getSql } from "@/lib/db";
 import { coerceCollection, coerceCollectionList, isCollectionKind, type Collection } from "./collections";
 import { coerceProblem, coerceProblemList } from "./coerce";
+import { problemPatchFields } from "./patch";
 import { sanitizeSvg } from "./svg";
 import {
   ERROR_REASONS,
@@ -284,6 +285,7 @@ function cleanProblem(input: Problem): Problem {
 }
 
 async function upsertOne(userId: string, input: Problem): Promise<void> {
+  // Imports and cache recovery may omit media. Explicit removal uses patchProblemFn.
   await ensureCollectionsSchema();
   const p = cleanProblem(input);
   const sql = await getSql();
@@ -305,10 +307,10 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
       on conflict (user_id, id) do update set
         updated_at = excluded.updated_at,
         source_kind = excluded.source_kind,
-        source_image = excluded.source_image,
+        source_image = coalesce(excluded.source_image, problems.source_image),
         title = excluded.title,
         stem = excluded.stem,
-        figures_json = excluded.figures_json,
+        figures_json = case when excluded.figures_json = '[]' then problems.figures_json else excluded.figures_json end,
         subject = excluded.subject,
         tags_json = excluded.tags_json,
         difficulty = excluded.difficulty,
@@ -341,10 +343,10 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
       on conflict (user_id, id) do update set
         updated_at = excluded.updated_at,
         source_kind = excluded.source_kind,
-        source_image = excluded.source_image,
+        source_image = coalesce(excluded.source_image, problems.source_image),
         title = excluded.title,
         stem = excluded.stem,
-        figures_json = excluded.figures_json,
+        figures_json = case when excluded.figures_json = '[]' then problems.figures_json else excluded.figures_json end,
         subject = excluded.subject,
         tags_json = excluded.tags_json,
         difficulty = excluded.difficulty,
@@ -501,6 +503,31 @@ export const upsertProblem = createServerFn({ method: "POST" })
     await upsertOne(context.userId, data);
     await markInitialized(context.userId);
     return { ok: true as const };
+  });
+
+export const patchProblemFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({
+    id: z.string().min(1).max(80),
+    patch: z.record(z.string(), z.unknown()),
+  }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(async ({ context, data }) => {
+    await ensureCollectionsSchema();
+    const cleaned = coerceProblem({ title: "未命名题目", ...data.patch, id: data.id });
+    if (!cleaned) throw new Error("题目格式不对");
+    const fields = problemPatchFields(data.patch, cleanProblem(cleaned));
+    if (!fields.length) throw new Error("没有可修改的字段");
+    const sql = await getSql();
+    const updatedAt = Date.now();
+    const assignments = fields.map(([column], index) => `${column} = $${index + 1}`);
+    const params = fields.map(([, value]) => value);
+    params.push(updatedAt, context.userId, data.id);
+    const rows = await sql.query<{ id: string }>(
+      `update problems set ${assignments.join(", ")}, updated_at = $${fields.length + 1}
+       where user_id = $${fields.length + 2} and id = $${fields.length + 3} returning id`, params,
+    );
+    if (!rows.length) throw new Error("题目不存在，未保存修改");
+    return { ok: true as const, updatedAt };
   });
 
 export const pushProblems = createServerFn({ method: "POST" })
