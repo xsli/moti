@@ -540,6 +540,10 @@ function shuffle<T>(list: T[]): T[] {
   return next;
 }
 
+export function createPaperQuoteDeck() {
+  return shuffle(MATH_QUIPS);
+}
+
 function Seal({ msg, bind }: { msg: string; bind: string }) {
   return (
     <div className="exam-seal" aria-hidden="true">
@@ -936,6 +940,8 @@ export function ExamSheet({
   blankLines = 5,
   blankAuto = false,
   sheetKind = "exam",
+  onReady,
+  localFonts = false,
 }: {
   title: string;
   dateLabel: string;
@@ -944,11 +950,16 @@ export function ExamSheet({
   blankLines?: BlankLines;
   blankAuto?: boolean;
   sheetKind?: SheetKind;
+  onReady?: () => void;
+  localFonts?: boolean;
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<Block[][]>([]);
+  useLayoutEffect(() => {
+    if (pages.length) onReady?.();
+  }, [pages, onReady]);
   const headingCount = items.filter((item) => item.kind === "heading").length;
-  const quoteDeck = useMemo(() => shuffle(MATH_QUIPS), [title, dateLabel, sheetKind]);
+  const quoteDeck = useMemo(() => createPaperQuoteDeck(), [title, dateLabel, sheetKind]);
   const handout = sheetKind === "handout";
 
   const blocks = useMemo(() => {
@@ -1102,12 +1113,20 @@ export function ExamSheet({
   );
 
   return (
-    <div className="exam-sheet" data-kind={sheetKind}>
-      <link
+    <div className="exam-sheet" data-kind={sheetKind} data-local-fonts={localFonts || undefined}>
+      {!localFonts ? <link
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@500;700&display=swap"
-      />
+      /> : null}
       <style>{`${katexCss}\n${EXAM_CSS}`}</style>
+      {localFonts ? <style>{`
+        .exam-sheet[data-local-fonts] .exam-page, .exam-sheet[data-local-fonts] .exam-measure {
+          font-family: "Songti SC", "STSong", "SimSun", serif; letter-spacing: 0;
+        }
+        .exam-sheet[data-local-fonts] :is(.hn-title, .hn-logo-name, .hn-sec-title, .exam-no, .exam-analysis-label, .exam-section) {
+          font-family: "Microsoft YaHei", "PingFang SC", "Heiti SC", "SimHei", sans-serif; letter-spacing: 0;
+        }
+      `}</style> : null}
       <div className="exam-measure" ref={measureRef}>
         <div data-measure="head">{head}</div>
         {handout ? (

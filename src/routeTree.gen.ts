@@ -14,6 +14,7 @@ import { Route as CaptureRouteImport } from './routes/capture'
 import { Route as PaperRouteImport } from './routes/paper'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as PIdRouteImport } from './routes/p.$id'
+import { Route as ReadIdRouteImport } from './routes/read.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,6 +41,11 @@ const PIdRoute = PIdRouteImport.update({
   path: '/p/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReadIdRoute = ReadIdRouteImport.update({
+  id: '/read/$id',
+  path: '/read/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
+  '/read/$id': typeof ReadIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
+  '/read/$id': typeof ReadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +70,21 @@ export interface FileRoutesById {
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
+  '/read/$id': typeof ReadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/capture' | '/paper' | '/review' | '/p/$id'
+  fullPaths: '/' | '/capture' | '/paper' | '/review' | '/p/$id' | '/read/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/capture' | '/paper' | '/review' | '/p/$id'
-  id: '__root__' | '/' | '/capture' | '/paper' | '/review' | '/p/$id'
+  to: '/' | '/capture' | '/paper' | '/review' | '/p/$id' | '/read/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/capture'
+    | '/paper'
+    | '/review'
+    | '/p/$id'
+    | '/read/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +93,7 @@ export interface RootRouteChildren {
   PaperRoute: typeof PaperRoute
   ReviewRoute: typeof ReviewRoute
   PIdRoute: typeof PIdRoute
+  ReadIdRoute: typeof ReadIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,6 +133,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/read/$id': {
+      id: '/read/$id'
+      path: '/read/$id'
+      fullPath: '/read/$id'
+      preLoaderRoute: typeof ReadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -125,6 +149,7 @@ const rootRouteChildren: RootRouteChildren = {
   PaperRoute: PaperRoute,
   ReviewRoute: ReviewRoute,
   PIdRoute: PIdRoute,
+  ReadIdRoute: ReadIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

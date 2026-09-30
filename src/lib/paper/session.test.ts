@@ -40,6 +40,31 @@ describe("paper session", () => {
     assert.deepEqual(session.basket, []);
   });
 
+  it("does not restore removed basket items from stale local or remote sessions", () => {
+    const legacy = parseSession({ basket: ["a", "b", "c"] });
+    const removed = removeFromBasket(legacy, "b");
+    for (const merged of [mergeSession(removed, legacy), mergeSession(legacy, removed)]) {
+      assert.deepEqual(merged.basket, ["a", "c"]);
+      assert.equal(parseSession(JSON.parse(JSON.stringify(merged))).basketUpdatedAt, removed.basketUpdatedAt);
+    }
+    const cleared = clearBasket(removed);
+    assert.ok(cleared.basketUpdatedAt > removed.basketUpdatedAt);
+    assert.deepEqual(mergeSession(legacy, mergeSession(removed, cleared)).basket, []);
+    assert.deepEqual(mergeSession(cleared, removed).basket, []);
+    const added = addToBasket(cleared, ["b"]);
+    assert.ok(added.basketUpdatedAt > cleared.basketUpdatedAt);
+    assert.deepEqual(mergeSession(cleared, added).basket, ["b"]);
+  });
+
+  it("merges legacy baskets but rejects invalid basket revisions", () => {
+    const legacy = parseSession({ basket: ["a", "b"] });
+    assert.deepEqual(mergeSession(legacy, parseSession({ basket: ["b", "c"] })).basket, ["a", "b", "c"]);
+    for (const value of [-1, Infinity, NaN, 1.5, "123", Number.MAX_SAFE_INTEGER + 1]) {
+      assert.equal(parseSession({ basketUpdatedAt: value }).basketUpdatedAt, 0);
+    }
+    assert.equal(parseSession({ basketUpdatedAt: 123 }).basketUpdatedAt, 123);
+  });
+
   it("saves a paper template with headings and scores", () => {
     const session = saveTemplate(emptySession(), {
       name: "周六数学卷",

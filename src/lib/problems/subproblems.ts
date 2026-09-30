@@ -1,3 +1,5 @@
+import type { Figure } from "./types";
+
 export type StemSection = {
   subproblem: number;
   text: string;
@@ -78,4 +80,17 @@ export function stemSubproblemNumbers(stem: string): number[] {
         .filter((n) => n > 0),
     ),
   ];
+}
+
+/** Keep each figure once, including figures whose original anchor no longer exists. */
+export function stemSectionsWithFigures(stem: string, figures: Figure[]) {
+  const remaining = new Set(figures);
+  const sections = splitStemSections(stem).map((section) => {
+    const attached = figures.filter((figure) =>
+      section.subproblem > 0 && figure.subproblem === section.subproblem && remaining.has(figure),
+    );
+    attached.forEach((figure) => remaining.delete(figure));
+    return { ...section, figures: attached };
+  });
+  return { sections, trailingFigures: [...remaining] };
 }

@@ -1,4 +1,5 @@
 import { sanitizeSvg } from "./svg";
+import { cleanOriginalImage } from "./figure-media";
 import { coerceSubject, isErrorReason, type Figure, type Problem } from "./types";
 
 function asString(value: unknown, fallback = ""): string {
@@ -27,6 +28,8 @@ function asFigures(value: unknown): Figure[] {
       svg: (svgRaw ?? "").slice(0, 200_000),
       caption: asString(fig.caption).slice(0, 200),
       image,
+      originalImage: cleanOriginalImage(fig.originalImage),
+      redrawError: asString(fig.redrawError).slice(0, 300) || undefined,
       subproblem: (() => {
         const n = Math.round(asNumber(fig.subproblem));
         return n > 0 && n <= 99 ? n : undefined;
@@ -120,10 +123,12 @@ export function mergeProblems(primary: Problem[], secondary: Problem[]): Problem
       sourceOrder: newer.sourceOrder ?? older.sourceOrder,
       figures:
         newer.figures.some((f) => f.image || f.svg)
-          ? newer.figures.map((fig, i) => ({
+          ? newer.figures.map((fig) => ({
               ...fig,
-              image: fig.image || older.figures[i]?.image,
-              svg: fig.svg || older.figures[i]?.svg || "",
+              image: fig.image || older.figures.find((f) => f.id === fig.id)?.image,
+              svg: fig.svg || older.figures.find((f) => f.id === fig.id)?.svg || "",
+              originalImage: fig.image || fig.svg ? fig.originalImage
+                : older.figures.find((f) => f.id === fig.id)?.originalImage,
             }))
           : older.figures.length
             ? older.figures

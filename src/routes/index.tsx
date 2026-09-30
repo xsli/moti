@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Camera, ChevronRight, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
-import { type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { type PointerEvent, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { DateMenu, DifficultyMenu, FilterMenu } from "@/components/notebook/filter-menu";
@@ -10,6 +10,7 @@ import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-edito
 import { TagFilter } from "@/components/notebook/tag-filter";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   COLLECTION_KIND_LABEL,
   COLLECTION_KINDS,
@@ -39,6 +41,8 @@ import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
 import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 import { folderSummaries } from "@/lib/problems/folders";
+import { BookExportDialog } from "@/components/paper/book-export-dialog";
+import { orderBrowseProblems } from "@/lib/problems/browse";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { g?: string; f?: string } => {
@@ -52,9 +56,11 @@ export const Route = createFileRoute("/")({
 type Filter = "all" | "due" | Subject;
 type MasteryFilter = "all" | Mastery;
 type BrowseLayout = "card" | "row";
+type CollectionIdentityPatch = Partial<Pick<Collection, "name" | "groupName" | "kind">>;
 
 const KIND_ORDER: CollectionKind[] = ["exam", "unit", "lesson", "custom"];
 const LAYOUT_KEY = "moti-browse-layout";
+const BROWSE_PAGE_SIZE = 24;
 
 function readLayout(): BrowseLayout {
   if (typeof window === "undefined") return "card";
@@ -88,13 +94,19 @@ function Home() {
   const [masteryFilter, setMasteryFilter] = useState<MasteryFilter>("all");
   const [difficultyFilter, setDifficultyFilter] = useState<number[]>([]);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const searching = query !== deferredQuery;
+  const [pagination, setPagination] = useState({ scope: "", page: 1 });
+  const listTopRef = useRef<HTMLDivElement>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tagOpen, setTagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [masteryOpen, setMasteryOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [folderRename, setFolderRename] = useState<{ from: string; to: string; others: number } | null>(null);
+  const [folderRename, setFolderRename] = useState<{
+    from: string; to: string; others: number; id: string; patch: CollectionIdentityPatch;
+  } | null>(null);
   const [batchTags, setBatchTags] = useState<string[]>([]);
   const [commonTags, setCommonTags] = useState<string[]>([]);
   const [batchGroupId, setBatchGroupId] = useState("");
@@ -133,7 +145,7 @@ function Home() {
   );
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     const list = problems.filter((p) => {
       if (g === "ungrouped" && p.collectionId) return false;
       if (g && g !== "all" && g !== "ungrouped" && p.collectionId !== g) return false;
@@ -152,7 +164,36 @@ function Home() {
     });
     if (g && g !== "all") return sortBySourceOrder(list);
     return list;
-  }, [problems, filter, tagFilter, masteryFilter, difficultyFilter, query, dateFilter, dateDay, g]);
+  }, [problems, filter, tagFilter, masteryFilter, difficultyFilter, deferredQuery, dateFilter, dateDay, g]);
+
+  const paginated = g === "all" || g === "ungrouped";
+  const orderedVisible = useMemo(
+    () => g === "all" ? orderBrowseProblems(visible, collections.map((c) => c.id)) : visible,
+    [visible, collections, g],
+  );
+  const pageScope = JSON.stringify([g, f, filter, tagFilter, masteryFilter, difficultyFilter, deferredQuery, dateFilter, dateDay]);
+  const pageCount = paginated ? Math.max(1, Math.ceil(orderedVisible.length / BROWSE_PAGE_SIZE)) : 1;
+  const currentPage = Math.min(pagination.scope === pageScope ? pagination.page : 1, pageCount);
+  const pageStart = paginated ? (currentPage - 1) * BROWSE_PAGE_SIZE : 0;
+  const pageItems = useMemo(
+    () => paginated ? orderedVisible.slice(pageStart, pageStart + BROWSE_PAGE_SIZE) : orderedVisible,
+    [paginated, orderedVisible, pageStart],
+  );
+  const navigationIds = useMemo(() => orderedVisible.map((p) => p.id), [orderedVisible]);
+  const pageSelected = pageItems.length > 0 && pageItems.every((p) => selected.has(p.id));
+
+  useEffect(() => {
+    setPagination((previous) => {
+      if (previous.scope !== pageScope) return { scope: pageScope, page: 1 };
+      if (previous.page > pageCount) return { ...previous, page: pageCount };
+      return previous;
+    });
+  }, [pageScope, pageCount]);
+
+  function goToPage(page: number) {
+    setPagination({ scope: pageScope, page: Math.max(1, Math.min(page, pageCount)) });
+    listTopRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  }
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -268,7 +309,7 @@ function Home() {
           const result = await solveProblem({
             data: {
               stem: problem.stem,
-              imageDataUrl: problem.figures[0]?.image || problem.sourceImage,
+              imageDataUrl: problem.figures[0]?.originalImage || problem.figures[0]?.image || problem.sourceImage,
             },
           });
           if (!result.ok) {
@@ -420,12 +461,9 @@ function Home() {
       <>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/" search={currentCol ? { f: currentCol.groupName.trim() } : {}}>
-              <ArrowLeft className="size-4" />
-              {currentCol ? currentCol.groupName.trim() || UNGROUPED_FOLDER : "全部大组"}
-            </Link>
-          </Button>
+          <BackButton>
+            <Link to="/" search={currentCol ? { f: currentCol.groupName.trim() } : {}} />
+          </BackButton>
           {g === "all" || g === "ungrouped" || !currentCol ? (
             <>
               <h2 className="font-display text-xl font-semibold">
@@ -436,10 +474,9 @@ function Home() {
           ) : null}
           {currentCol ? (
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <Button asChild size="sm">
-                <Link to="/capture" search={{ g: currentCol.id }}>
-                  <Camera className="size-4" />
-                  拍题
+              <Button asChild size="sm" variant="outline">
+                <Link to="/read/$id" params={{ id: currentCol.id }}>
+                  阅读
                 </Link>
               </Button>
               <Button
@@ -460,26 +497,25 @@ function Home() {
                   })
                 }
               >
-                本组组卷
+                组卷
               </Button>
             </div>
           ) : null}
         </div>
         {currentCol ? (
           <CollectionIdentity
+            key={currentCol.id}
             name={currentCol.name}
             groupName={currentCol.groupName}
             kind={currentCol.kind}
-            count={visible.length}
             suggestions={collections.map((item) => item.groupName)}
-            sortable={visible.length > 1}
             onPatch={(patch) => {
               if (patch.groupName != null && patch.groupName !== currentCol.groupName) {
                 const others = collections.filter(
                   (item) => item.id !== currentCol.id && item.groupName === currentCol.groupName,
                 ).length;
                 if (currentCol.groupName.trim() && others > 0) {
-                  setFolderRename({ from: currentCol.groupName, to: patch.groupName, others });
+                  setFolderRename({ from: currentCol.groupName, to: patch.groupName, others, id: currentCol.id, patch });
                   return;
                 }
               }
@@ -534,10 +570,17 @@ function Home() {
             <button
               type="button"
               className="text-sm text-muted-foreground hover:text-fg"
-              onClick={() => setSelected(new Set(visible.map((p) => p.id)))}
-              disabled={!visible.length}
+              onClick={() => setSelected((previous) => {
+                const next = new Set(previous);
+                for (const item of pageItems) {
+                  if (pageSelected) next.delete(item.id);
+                  else next.add(item.id);
+                }
+                return next;
+              })}
+              disabled={!pageItems.length || searching}
             >
-              全部选中
+              {paginated ? (pageSelected ? "取消本页全选" : "全选本页") : (pageSelected ? "取消全选" : "全部选中")}
             </button>
             <button
               type="button"
@@ -667,6 +710,21 @@ function Home() {
         </div>
       </div>
 
+      {paginated && status === "ready" ? (
+        <nav ref={listTopRef} aria-label="题目分页" className="sticky top-14 z-10 flex scroll-mt-20 flex-wrap items-center justify-between gap-2 border-y border-border bg-surface px-3 py-2 sm:top-16">
+          <span className="text-sm text-muted-foreground" aria-live="polite">
+            {searching ? "筛选中…" : `共 ${orderedVisible.length} 道 · ${orderedVisible.length ? pageStart + 1 : 0}–${pageStart + pageItems.length}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" aria-label="上一页" title="上一页" disabled={currentPage <= 1 || searching} onClick={() => goToPage(currentPage - 1)}><ChevronLeft /></Button>
+            <select aria-label="页码" value={currentPage} disabled={!orderedVisible.length || searching} onChange={(e) => goToPage(Number(e.target.value))} className="h-9 rounded-md border border-border bg-surface px-2 text-sm">
+              {Array.from({ length: pageCount }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} / {pageCount}</option>)}
+            </select>
+            <Button variant="ghost" size="icon" aria-label="下一页" title="下一页" disabled={currentPage >= pageCount || searching} onClick={() => goToPage(currentPage + 1)}><ChevronRight /></Button>
+          </div>
+        </nav>
+      ) : null}
+
       {status === "error" ? (
         <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)]">
           <p className="font-display text-xl font-semibold">本子还没同步上来</p>
@@ -692,7 +750,8 @@ function Home() {
         </div>
       ) : (
         <ProblemSections
-          problems={visible}
+          problems={pageItems}
+          navigationIds={navigationIds}
           collections={collections}
           groupBy={g === "all" ? "collection" : "none"}
           layout={layout}
@@ -822,8 +881,8 @@ function Home() {
             <Button
               variant="secondary"
               onClick={() => {
-                if (!currentCol || !folderRename) return;
-                void updateCollection(currentCol.id, { groupName: folderRename.to });
+                if (!folderRename) return;
+                void updateCollection(folderRename.id, folderRename.patch);
                 setFolderRename(null);
               }}
             >
@@ -832,7 +891,10 @@ function Home() {
             <Button
               onClick={() => {
                 if (!folderRename) return;
-                void renameFolder(folderRename.from, folderRename.to).then((n) => {
+                void renameFolder(folderRename.from, folderRename.to).then(async (n) => {
+                  if (folderRename.patch.name != null || folderRename.patch.kind != null) {
+                    await updateCollection(folderRename.id, folderRename.patch);
+                  }
                   toast.success(`已把 ${n} 个小组放到「${folderRename.to || "未分大组"}」`);
                 });
                 setFolderRename(null);
@@ -851,6 +913,7 @@ function Home() {
 
 function ProblemSections({
   problems,
+  navigationIds,
   collections,
   groupBy,
   layout,
@@ -861,6 +924,7 @@ function ProblemSections({
   onReorder,
 }: {
   problems: Problem[];
+  navigationIds: string[];
   collections: { id: string; name: string }[];
   groupBy: "collection" | "none";
   layout: BrowseLayout;
@@ -876,18 +940,19 @@ function ProblemSections({
       .map((item) => ({
         key: item.id,
         title: item.name,
-        items: sortBySourceOrder(problems.filter((p) => p.collectionId === item.id)),
+        items: problems.filter((p) => p.collectionId === item.id),
       }))
       .filter((section) => section.items.length);
-    const loose = problems.filter((p) => !p.collectionId);
+    const known = new Set(collections.map((item) => item.id));
+    const loose = problems.filter((p) => !p.collectionId || !known.has(p.collectionId));
     return loose.length
-      ? [...named, { key: "ungrouped", title: "未分组", items: sortBySourceOrder(loose) }]
+      ? [...named, { key: "ungrouped", title: "未分组", items: loose }]
       : named;
   }, [groupBy, collections, problems]);
 
   if (sections.length <= 1) {
     return (
-      <ProblemNavigationScope ids={problems.map((problem) => problem.id)}>
+      <ProblemNavigationScope ids={navigationIds}>
       <SortableProblems
         problems={problems}
         layout={layout}
@@ -902,7 +967,7 @@ function ProblemSections({
   }
 
   return (
-    <ProblemNavigationScope ids={sections.flatMap((section) => section.items.map((problem) => problem.id))}>
+    <ProblemNavigationScope ids={navigationIds}>
     <div className="flex flex-col gap-8">
       {sections.map((section) => (
         <section key={section.key} className="flex flex-col gap-3">
@@ -970,10 +1035,9 @@ function GroupHome({
     <div className="flex flex-col gap-5">
       {inFolder ? (
         <>
-          <nav aria-label="分组路径">
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/" search={{}}><ArrowLeft className="size-4" />全部大组</Link>
-            </Button>
+          <nav aria-label="分组路径" className="flex flex-wrap items-center justify-between gap-2">
+            <BackButton><Link to="/" search={{}} /></BackButton>
+            <BookExportDialog folder={folder} collections={collections} problems={problems} />
           </nav>
           <FolderHeading
             name={folder}
@@ -1247,124 +1311,91 @@ function CollectionIdentity({
   name,
   groupName,
   kind,
-  count,
   suggestions,
-  sortable,
   onPatch,
 }: {
   name: string;
   groupName: string;
   kind: CollectionKind;
-  count: number;
   suggestions: string[];
-  sortable?: boolean;
-  onPatch: (patch: { name?: string; groupName?: string; kind?: CollectionKind }) => void;
+  onPatch: (patch: CollectionIdentityPatch) => void;
 }) {
-  return (
-    <div className="rounded-xl bg-surface px-4 py-3 shadow-[var(--shadow-border)]">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.25fr)] sm:items-end">
-        <RenameField
-          label="大组"
-          value={groupName}
-          placeholder="例如华杯真题"
-          suggestions={suggestions}
-          onCommit={(next) => onPatch({ groupName: next })}
-        />
-        <p className="hidden pb-2 text-lg text-muted-foreground/50 sm:block" aria-hidden>
-          /
-        </p>
-        <RenameField
-          label="小组"
-          value={name}
-          placeholder="例如 2025dly"
-          required
-          onCommit={(next) => onPatch({ name: next })}
-        />
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {COLLECTION_KINDS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={cn(
-              "h-7 rounded-full px-2.5 text-xs transition-colors",
-              kind === item ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
-            )}
-            onClick={() => {
-              if (item !== kind) onPatch({ kind: item });
-            }}
-          >
-            {COLLECTION_KIND_LABEL[item]}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {count} 道{sortable ? " · 按住左上角横条可改顺序" : ""}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function RenameField({
-  label,
-  value,
-  placeholder,
-  suggestions = [],
-  required,
-  onCommit,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  suggestions?: string[];
-  required?: boolean;
-  onCommit: (value: string) => void;
-}) {
-  const [text, setText] = useState(value);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name, groupName, kind });
   const listId = useId();
-  useEffect(() => {
-    setText(value);
-  }, [value]);
   const names = [...new Set(suggestions.map((item) => item.trim()).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
   );
 
-  function commit() {
-    const next = text.trim();
-    if (required && !next) {
-      setText(value);
-      return;
-    }
-    if (next !== value) onCommit(next);
+  function save() {
+    const next = { ...draft, name: draft.name.trim(), groupName: draft.groupName.trim() };
+    if (!next.name) return;
+    const patch: CollectionIdentityPatch = {};
+    if (next.name !== name) patch.name = next.name;
+    if (next.groupName !== groupName) patch.groupName = next.groupName;
+    if (next.kind !== kind) patch.kind = next.kind;
+    setEditing(false);
+    if (Object.keys(patch).length) onPatch(patch);
   }
 
+  if (!editing) return (
+    <section aria-label="分组信息" className="flex items-start gap-3 border-b border-border py-4">
+      <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div className="min-w-0">
+          <p className="mb-1 text-xs text-muted-foreground">大组</p>
+          <p className="break-words text-base">{groupName || UNGROUPED_FOLDER}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="mb-1 text-xs text-muted-foreground">小组 · {COLLECTION_KIND_LABEL[kind]}</p>
+          <h2 className="break-words font-display text-lg font-semibold">{name}</h2>
+        </div>
+      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button type="button" size="icon" variant="ghost" className="shrink-0 text-muted-foreground" aria-label="编辑分组信息"
+            onClick={() => { setDraft({ name, groupName, kind }); setEditing(true); }}>
+            <Pencil />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>编辑分组信息</TooltipContent>
+      </Tooltip>
+    </section>
+  );
+
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="text-[11px] tracking-wider text-muted-foreground">{label}</span>
-      <input
-        value={text}
-        list={names.length ? listId : undefined}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.currentTarget.blur();
-          }
-        }}
-        placeholder={placeholder}
-        className={cn(
-          "h-10 min-w-0 rounded-lg bg-secondary/80 px-3 text-sm text-fg outline-none ring-0 transition-shadow",
-          "placeholder:text-muted-foreground/70 focus:bg-bg focus:shadow-[var(--shadow-border)]",
-        )}
-      />
-      {names.length ? (
-        <datalist id={listId}>
-          {names.map((item) => (
-            <option key={item} value={item} />
-          ))}
-        </datalist>
-      ) : null}
-    </label>
+    <form aria-label="编辑分组信息" className="space-y-4 border-b border-border py-4"
+      onSubmit={(event) => { event.preventDefault(); save(); }}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") { event.preventDefault(); setEditing(false); }
+      }}>
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+          大组
+          <Input autoFocus value={draft.groupName} maxLength={40} list={names.length ? listId : undefined}
+            placeholder={UNGROUPED_FOLDER} onChange={(event) => setDraft({ ...draft, groupName: event.target.value })} />
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+          小组
+          <Input value={draft.name} maxLength={40} required
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+        </label>
+        <datalist id={listId}>{names.map((item) => <option key={item} value={item} />)}</datalist>
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          类型
+          <select aria-label="类型" value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as CollectionKind })}
+            className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-fg">
+            {COLLECTION_KINDS.map((item) => <option key={item} value={item}>{COLLECTION_KIND_LABEL[item]}</option>)}
+          </select>
+        </label>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>取消</Button>
+          <Button type="submit" size="sm" disabled={!draft.name.trim()}>保存</Button>
+        </div>
+      </div>
+    </form>
   );
 }
 

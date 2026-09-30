@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   coerceCollection,
+  coerceCollectionList,
   defaultCollectionName,
   mergeCollections,
   nextCollectionSortOrder,
@@ -11,6 +12,12 @@ import { moveId, sortBySourceOrder, spliceVisibleOrder } from "./order.ts";
 import type { Problem } from "./types.ts";
 
 describe("collections", () => {
+  it("preserves every valid chapter beyond eighty collections", () => {
+    const input = Array.from({ length: 100 }, (_, i) => ({ id: `c${i}`, name: `Chapter ${i}` }));
+    const result = coerceCollectionList([...input, null, { id: "invalid" }]);
+    assert.equal(result.length, 100);
+    assert.equal(result[99].id, "c99");
+  });
   it("coerces a named group", () => {
     const item = coerceCollection({ id: "c1", name: "3月月考卷", kind: "exam", createdAt: 1, updatedAt: 2 });
     assert.equal(item?.name, "3月月考卷");

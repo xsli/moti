@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MathText } from "@/lib/problems/math-text";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
@@ -57,9 +58,7 @@ function ReviewPage() {
           {done > 0 ? `共过了 ${done} 道。` : "去拍一道新题，或打开本子随便翻一翻。"}
         </p>
         <div className="mt-6 flex justify-center gap-2">
-          <Button asChild variant="outline">
-            <Link to="/">回到本子</Link>
-          </Button>
+          <BackButton><Link to="/" /></BackButton>
           <Button asChild>
             <Link to="/capture">拍题</Link>
           </Button>
@@ -89,7 +88,7 @@ function ReviewPage() {
           <MathText text={current.stem} />
         </div>
         {current.figures[0] ? (
-          <FigureFrame svg={current.figures[0].svg} caption={current.figures[0].caption} />
+          <FigureFrame svg={current.figures[0].svg} image={current.figures[0].image} caption={current.figures[0].caption} />
         ) : null}
 
         {revealed ? (

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { localUserMiddleware } from "@/lib/local-user";
 import { getSql } from "@/lib/db";
@@ -6,6 +7,8 @@ import { coerceCollection, coerceCollectionList, isCollectionKind, type Collecti
 import { coerceProblem, coerceProblemList } from "./coerce";
 import { problemPatchFields } from "./patch";
 import { sanitizeSvg } from "./svg";
+import { cleanOriginalImage } from "./figure-media";
+import { isFlatRedrawSvg, replaceFigureMedia } from "./figure-cas";
 import {
   ERROR_REASONS,
   SUBJECTS,
@@ -123,6 +126,8 @@ function parseFigures(raw: string): Figure[] {
         svg: svg ?? "",
         caption: String(fig.caption ?? "").slice(0, 200),
         image,
+        originalImage: cleanOriginalImage(fig.originalImage),
+        redrawError: typeof fig.redrawError === "string" ? fig.redrawError.slice(0, 300) : undefined,
         subproblem: (() => {
           const n = Math.round(Number(fig.subproblem) || 0);
           return n > 0 && n <= 99 ? n : undefined;
@@ -200,7 +205,7 @@ async function listForUser(userId: string): Promise<Problem[]> {
     const problem = mapRow({ ...row, source_image: row.source_image ?? null });
     return {
       ...problem,
-      figures: problem.figures.map((fig) => ({ ...fig, image: undefined, svg: "" })),
+      figures: problem.figures.map((fig) => ({ ...fig, image: undefined, originalImage: undefined, svg: "" })),
     };
   };
   try {
@@ -268,6 +273,8 @@ function cleanProblem(input: Problem): Problem {
     figures: input.figures.slice(0, 8).map((fig) => ({
       ...fig,
       svg: sanitizeSvg(fig.svg) ?? fig.svg ?? "",
+      originalImage: cleanOriginalImage(fig.originalImage),
+      redrawError: fig.redrawError?.slice(0, 300) || undefined,
       image:
         fig.image && fig.image.startsWith("data:image/")
           ? fig.image.slice(0, 16_000_000)
@@ -530,6 +537,55 @@ export const patchProblemFn = createServerFn({ method: "POST" })
     return { ok: true as const, updatedAt };
   });
 
+// Compare-and-swap the current row. A racing figure edit causes a conflict;
+// unrelated problem fields are never written by this endpoint.
+export const updateFigureMediaFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({
+    id: z.string().min(1).max(80),
+    figureId: z.string().min(1).max(80),
+    expectedFigure: z.record(z.string(), z.unknown()),
+    expectedStem: z.string().max(8000),
+    expectedTitle: z.string().max(80),
+    image: z.string().max(16_000_000).regex(/^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/),
+  }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(async ({ context, data }) => {
+    if (data.expectedFigure.id !== data.figureId) throw new Error("配图 ID 不一致");
+    const svg = Buffer.from(data.image.split(",")[1], "base64").toString("utf8");
+    // This narrow endpoint accepts only the flat primitives emitted by redraw.
+    if (!sanitizeSvg(svg) || !isFlatRedrawSvg(svg)) {
+      throw new Error("重绘 SVG 无效");
+    }
+    const sql = await getSql();
+    const rows = await sql<{ figures_json: string; stem: string; title: string }>`
+      select figures_json, stem, title from problems
+      where user_id = ${context.userId} and id = ${data.id}
+    `;
+    const row = rows[0];
+    if (!row || row.stem !== data.expectedStem || row.title !== data.expectedTitle) {
+      return { ok: false as const, reason: "题目已修改或删除" };
+    }
+    const replaced = replaceFigureMedia(parseFigures(row.figures_json).map((f) => ({ ...f })), data.expectedFigure, data.image);
+    if (!replaced) return { ok: false as const, reason: "配图已修改或删除" };
+    // Preserve any stored fields that the public reader does not expose.
+    const next = (JSON.parse(row.figures_json) as Record<string, unknown>[]).map((f) => {
+      if (f.id !== data.figureId) return f;
+      const target = replaced.find((item) => item.id === data.figureId)!;
+      return { ...f, image: target.image, originalImage: target.originalImage, svg: "", redrawError: undefined };
+    });
+    const updatedAt = Date.now();
+    getRequest().signal.throwIfAborted();
+    const updated = await sql<{ id: string }>`
+      update problems set figures_json = ${JSON.stringify(next)}, updated_at = ${updatedAt}
+      where user_id = ${context.userId} and id = ${data.id}
+        and figures_json = ${row.figures_json}
+        and stem = ${data.expectedStem} and title = ${data.expectedTitle}
+      returning id
+    `;
+    return updated.length ? { ok: true as const, updatedAt }
+      : { ok: false as const, reason: "提交时配图或题干发生并发修改" };
+  });
+
 export const pushProblems = createServerFn({ method: "POST" })
   .validator((input: unknown) => {
     const obj = (input ?? {}) as { problems?: unknown };
@@ -554,6 +610,21 @@ export const deleteProblemFn = createServerFn({ method: "POST" })
       where user_id = ${context.userId} and id = ${data.id}
     `;
     return { ok: true as const };
+  });
+
+// Reading views need display figures, not the original PDF crops or source page.
+export const getProblemFiguresFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const rows = await sql<{ figures_json: string }>`
+      select figures_json from problems
+      where user_id = ${context.userId} and id = ${data.id}
+      limit 1
+    `;
+    if (!rows[0]) return null;
+    return parseFigures(rows[0].figures_json).map(({ originalImage: _original, redrawError: _error, ...figure }) => figure);
   });
 
 export const getProblemFn = createServerFn({ method: "POST" })

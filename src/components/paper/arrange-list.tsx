@@ -3,6 +3,7 @@ import { type PointerEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LayoutPick } from "@/components/paper/layout-pick";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { chineseOrdinal, headingBlankPreset, headingRole, paperTotal, reorderRows, sectionCount, type PaperRow, type SheetKind } from "@/lib/paper/layout";
@@ -116,9 +117,7 @@ export function ArrangeList({
           {onSheetKind ? <SheetKindToggle className="mt-2" value={sheetKind} onChange={onSheetKind} /> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={onBack}>
-            返回选题
-          </Button>
+          <BackButton onClick={onBack} title="返回选题" />
           <Button onClick={onNext} disabled={!problemCount}>
             {handout ? "预览学案" : "预览试卷"}
           </Button>

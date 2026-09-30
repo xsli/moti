@@ -16,6 +16,7 @@ export type PaperTemplate = {
 
 export type PaperSession = {
   basket: string[];
+  basketUpdatedAt: number;
   templates: PaperTemplate[];
   deletedTemplates: Record<string, number>;
 };
@@ -35,7 +36,7 @@ export function normalizePaperTitle(raw: unknown, sheetKind: SheetKind): string 
 }
 
 export function emptySession(): PaperSession {
-  return { basket: [], templates: [], deletedTemplates: {} };
+  return { basket: [], basketUpdatedAt: 0, templates: [], deletedTemplates: {} };
 }
 
 export function mergeSession(primary: PaperSession, secondary: PaperSession): PaperSession {
@@ -58,7 +59,11 @@ export function mergeSession(primary: PaperSession, secondary: PaperSession): Pa
       .slice(0, DELETED_TEMPLATE_MAX),
   );
   return {
-    basket: [...new Set([...primary.basket, ...secondary.basket])].slice(0, BASKET_MAX),
+    // Only legacy, unversioned baskets are combined. An edited empty basket is authoritative too.
+    basket: primary.basketUpdatedAt || secondary.basketUpdatedAt
+      ? [...(primary.basketUpdatedAt >= secondary.basketUpdatedAt ? primary.basket : secondary.basket)]
+      : [...new Set([...primary.basket, ...secondary.basket])].slice(0, BASKET_MAX),
+    basketUpdatedAt: Math.max(primary.basketUpdatedAt, secondary.basketUpdatedAt),
     templates: liveTemplates.slice(0, TEMPLATE_MAX),
     deletedTemplates: recentDeletions,
   };
@@ -136,6 +141,8 @@ export function parseSession(raw: unknown): PaperSession {
   }
   return mergeSession(emptySession(), {
     basket,
+    basketUpdatedAt: Number.isSafeInteger(data.basketUpdatedAt) && Number(data.basketUpdatedAt) > 0
+      ? Number(data.basketUpdatedAt) : 0,
     templates: templates.slice(0, TEMPLATE_MAX),
     deletedTemplates,
   });
@@ -148,15 +155,20 @@ export function addToBasket(session: PaperSession, ids: string[]): PaperSession 
     if (!id || basket.includes(id) || basket.length >= BASKET_MAX) continue;
     basket.push(id);
   }
-  return { ...session, basket };
+  if (basket.length === session.basket.length) return session;
+  return { ...session, basket, basketUpdatedAt: Math.max(Date.now(), session.basketUpdatedAt + 1) };
 }
 
 export function removeFromBasket(session: PaperSession, id: string): PaperSession {
-  return { ...session, basket: session.basket.filter((item) => item !== id) };
+  return {
+    ...session,
+    basket: session.basket.filter((item) => item !== id),
+    basketUpdatedAt: Math.max(Date.now(), session.basketUpdatedAt + 1),
+  };
 }
 
 export function clearBasket(session: PaperSession): PaperSession {
-  return { ...session, basket: [] };
+  return { ...session, basket: [], basketUpdatedAt: Math.max(Date.now(), session.basketUpdatedAt + 1) };
 }
 
 export function idsFromRows(rows: PaperRow[]): string[] {

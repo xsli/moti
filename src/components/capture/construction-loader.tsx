@@ -17,7 +17,7 @@ export function ConstructionLoader({
   withAnswer,
   onCancel,
 }: {
-  phase: "prepare" | "upload" | "recognize";
+  phase: "prepare" | "upload" | "recognize" | "redraw";
   current: number;
   total: number;
   startedAt: number;
@@ -46,6 +46,7 @@ export function ConstructionLoader({
       ? "正在合并 PDF 页面"
       : phase === "upload"
         ? "正在上传照片"
+        : phase === "redraw" ? "正在重绘配图"
         : withAnswer
           ? "正在识别并生成答案"
           : "正在识别题干";
@@ -143,7 +144,7 @@ export function ConstructionLoader({
         ) : null}
       </div>
       <Button type="button" variant="outline" onClick={onCancel}>
-        取消识别
+        {phase === "redraw" ? "跳过剩余重绘" : "取消识别"}
       </Button>
       <style>{`
         .draw-path {

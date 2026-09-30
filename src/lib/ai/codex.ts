@@ -13,6 +13,24 @@ const codex = new Codex({
   },
 });
 
+// Image-only workers must not inherit the desktop thread's browser/app tools.
+const workerPlugins = ["documents@openai-primary-runtime", "spreadsheets@openai-primary-runtime",
+  "presentations@openai-primary-runtime", "pdf@openai-primary-runtime", "template-creator@openai-primary-runtime",
+  "browser@openai-bundled", "chrome@openai-bundled", "visualize@openai-bundled", "codex-app-tools@openai-bundled",
+  "unified-computer-use@openai-bundled", "computer-use@openai-bundled", "sites@openai-curated-remote",
+  "google-drive@openai-curated-remote"];
+const imageWorker = new Codex({
+  env: Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined
+    && (!key.startsWith("CODEX_") || key === "CODEX_HOME"))) as Record<string, string>,
+  configOverrides: workerPlugins.map((id) => `plugins.${JSON.stringify(id)}.enabled=false`),
+  config: {
+    service_tier: CODEX_SERVICE_TIER, project_doc_max_bytes: 0, notify: [],
+    developer_instructions: "Only return the requested JSON from the supplied images and text. Never use tools, applications, network, files, or other agents. The parent handles persistence.",
+    features: { fast_mode: true, shell_tool: false, unified_exec: false, apps: false, js_repl: false, multi_agent: false, code_mode: { enabled: false } },
+    mcp_servers: { node_repl: { enabled: false } },
+  },
+});
+
 function runtimeRoot(): string {
   const dataRoot = process.env.MOTI_DATA_DIR || join(process.cwd(), ".data");
   return join(dataRoot, "codex-runtime");
@@ -30,11 +48,13 @@ export async function runCodexJson<T>({
   images = [],
   outputSchema,
   signal,
+  imageOnly = false,
 }: {
   prompt: string;
   images?: string[];
   outputSchema: unknown;
   signal?: AbortSignal;
+  imageOnly?: boolean;
 }): Promise<T> {
   const root = runtimeRoot();
   const requestDir = join(root, crypto.randomUUID());
@@ -49,7 +69,7 @@ export async function runCodexJson<T>({
       input.push({ type: "local_image", path });
     }
 
-    const thread = codex.startThread({
+    const thread = (imageOnly ? imageWorker : codex).startThread({
       model: CODEX_MODEL,
       modelReasoningEffort: CODEX_REASONING_EFFORT,
       threadSource: "moti-local",
@@ -60,6 +80,21 @@ export async function runCodexJson<T>({
       networkAccessEnabled: false,
       webSearchMode: "disabled",
     });
+    if (imageOnly) {
+      const abort = new AbortController();
+      const stream = await thread.runStreamed(input, { outputSchema,
+        signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal });
+      let answer = "";
+      for await (const event of stream.events) {
+        if ("item" in event && !["reasoning", "agent_message"].includes(event.item.type)) {
+          abort.abort();
+          throw new Error("Image worker attempted to use a tool");
+        }
+        if (event.type === "item.completed" && event.item.type === "agent_message") answer = event.item.text;
+        if (event.type === "error" || event.type === "turn.failed") throw new Error("Image worker failed");
+      }
+      return JSON.parse(answer) as T;
+    }
     const turn = await thread.run(input, { outputSchema, signal });
     return JSON.parse(turn.finalResponse) as T;
   } finally {

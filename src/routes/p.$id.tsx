@@ -1,13 +1,17 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
+import { FigureRedrawControls } from "@/components/notebook/figure-redraw-controls";
+import { redrawDiagram } from "@/lib/image/figure";
 import { TagEditor } from "@/components/notebook/tag-editor";
+import { VariantDialog } from "@/components/notebook/variant-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import {
   Dialog,
@@ -70,9 +74,7 @@ function ProblemPage() {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <p className="font-display text-2xl font-semibold">找不到这道题</p>
-        <Button asChild className="mt-6" variant="outline">
-          <Link to="/">回到本子</Link>
-        </Button>
+        <BackButton className="mt-6"><Link to="/" /></BackButton>
       </div>
     );
   }
@@ -122,6 +124,13 @@ function ProblemDetail({ problem }: { problem: Problem }) {
     await updateProblem(problem.id, { figures: problem.figures.filter((figure) => figure.id !== id) });
   }
 
+  async function updateFigure(next: Figure) {
+    const latest = useProblemStore.getState().problems.find((p) => p.id === problem.id);
+    if (!latest?.figures.some((f) => f.id === next.id)) return;
+    await updateProblem(problem.id, { figures: latest.figures.map((f) => f.id === next.id
+      ? { ...f, image: next.image, svg: next.svg, originalImage: next.originalImage, redrawError: next.redrawError } : f) });
+  }
+
   async function askGrok() {
     if (!problem.stem.trim()) {
       toast.error("题干是空的，没法解答。");
@@ -132,7 +141,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
       const result = await solveProblem({
         data: {
           stem: problem.stem,
-          imageDataUrl: problem.figures[0]?.image || problem.sourceImage,
+          imageDataUrl: problem.figures[0]?.originalImage || problem.figures[0]?.image || problem.sourceImage,
         },
       });
       if (!result.ok) {
@@ -157,21 +166,29 @@ function ProblemDetail({ problem }: { problem: Problem }) {
     try {
       const cropped = await cropDataUrl(problem.sourceImage, cropBoxRef.current, 0);
       const current = cropReplaceId ? problem.figures.find((figure) => figure.id === cropReplaceId) : undefined;
-      const nextFigure: Figure = {
+      const nextFigure: Figure = await redrawDiagram({
         id: current?.id ?? crypto.randomUUID(),
         title: current?.title ?? "图形",
         caption: current?.caption ?? "",
         svg: "",
         image: cropped,
         subproblem: cropAnchor || undefined,
-      };
+      }, problem.stem);
+        const latest = useProblemStore.getState().problems.find((item) => item.id === problem.id);
+        if (!latest) return;
+        if (current && !latest.figures.some((figure) => figure.id === current.id && figure.image === current.image)) {
+          toast.error("配图已发生变化，请重新框选。");
+          return;
+        }
       await updateProblem(problem.id, {
         figures: current
-          ? problem.figures.map((figure) => (figure.id === current.id ? nextFigure : figure))
-          : [...problem.figures, nextFigure],
+            ? latest.figures.map((figure) => (figure.id === current.id ? nextFigure : figure))
+            : [...latest.figures, nextFigure],
       });
       setCropOpen(false);
       toast.success(cropAnchor ? `图形已跟随小题（${cropAnchor}）` : "图形已放在整题后");
+      } catch {
+        toast.error("保存配图失败，请重试。");
     } finally {
       setCropping(false);
     }
@@ -180,12 +197,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/" search={{ g: parentGroupId }}>
-            <ArrowLeft className="size-4" />
-            返回
-          </Link>
-        </Button>
+        <BackButton><Link to="/" search={{ g: parentGroupId }} /></BackButton>
         <nav aria-label="题目切换" className="flex shrink-0 items-center gap-1 sm:ml-auto">
           <Button type="button" variant="ghost" size="icon" title="上一题" aria-label="上一题" disabled={!navigation.previous}
             onClick={() => { if (navigation.previous) void navigate({ to: "/p/$id", params: { id: navigation.previous }, search: { browse } }); }}>
@@ -200,6 +212,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Button>
         </nav>
         <div className="flex flex-wrap gap-2">
+          <VariantDialog source={problem} />
           <Button
             variant="outline"
             size="sm"
@@ -282,6 +295,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
                   figures={problem.figures}
                   onRecrop={openCrop}
                   onRemove={(figure) => removeFigure(figure.id)}
+                  onChange={updateFigure}
                 />
               )}
             />
@@ -296,7 +310,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         {problem.figures
           .filter((figure) => !figure.subproblem || !subproblemNumbers.includes(figure.subproblem))
           .map((figure) => (
-            <FigureWithActions key={figure.id} figure={figure} onRecrop={openCrop} onRemove={(item) => removeFigure(item.id)} />
+            <FigureWithActions key={figure.id} figure={figure} stem={problem.stem} onChange={updateFigure} onRecrop={openCrop} onRemove={(item) => removeFigure(item.id)} />
           ))}
         {problem.sourceImage ? (
           <div className="flex justify-end border-t border-border px-5 py-3">
@@ -536,16 +550,21 @@ function EditableTitle({ value, onSave }: { value: string; onSave: (next: string
 
 function FigureWithActions({
   figure,
+  stem,
+  onChange,
   onRecrop,
   onRemove,
 }: {
   figure: Figure;
+  stem: string;
+  onChange: (figure: Figure) => void | Promise<void>;
   onRecrop: (figure: Figure) => void;
   onRemove: (figure: Figure) => void | Promise<void>;
 }) {
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
       <FigureFrame svg={figure.svg} image={figure.image} caption={figure.caption || figure.title} />
+      <FigureRedrawControls figure={figure} stem={stem} onChange={onChange} />
       <div className="flex justify-end gap-1 border-t border-border px-2 py-1.5">
         <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onRecrop(figure)}>
           <Scissors className="size-3.5" />
@@ -567,11 +586,13 @@ function StemWithFigures({
   figures,
   onRecrop,
   onRemove,
+  onChange,
 }: {
   stem: string;
   figures: Figure[];
   onRecrop: (figure: Figure) => void;
   onRemove: (figure: Figure) => void | Promise<void>;
+  onChange: (figure: Figure) => void | Promise<void>;
 }) {
   const sections = splitStemSections(stem);
   return (
@@ -583,7 +604,7 @@ function StemWithFigures({
             ? figures
                 .filter((figure) => figure.subproblem === section.subproblem)
                 .map((figure) => (
-                  <FigureWithActions key={figure.id} figure={figure} onRecrop={onRecrop} onRemove={onRemove} />
+                  <FigureWithActions key={figure.id} figure={figure} stem={stem} onChange={onChange} onRecrop={onRecrop} onRemove={onRemove} />
                 ))
             : null}
         </div>

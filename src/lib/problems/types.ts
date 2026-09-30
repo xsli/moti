@@ -62,6 +62,9 @@ export interface Figure {
   svg: string;
   caption: string;
   image?: string;
+  /** Original crop retained when image contains a redraw. Never printed. */
+  originalImage?: string;
+  redrawError?: string;
   subproblem?: number;
 }
 

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FilterMenu, DateMenu } from "@/components/notebook/filter-menu";
 import { ProblemCard } from "@/components/notebook/problem-card";
@@ -10,6 +10,7 @@ import { BasketBar } from "@/components/paper/basket-bar";
 import { ExamSheet } from "@/components/paper/exam-sheet";
 import { TemplateList } from "@/components/paper/template-list";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { Input } from "@/components/ui/input";
 import { resolveExamItems, rowsFromIds, type PaperRow, type SheetKind } from "@/lib/paper/layout";
 import { buildExamLatex } from "@/lib/paper/latex";
@@ -33,8 +34,9 @@ import { usePaperStore } from "@/lib/paper/store";
 import { formatLoggedDateLong, matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { idsInSourceOrder, sortBySourceOrder } from "@/lib/problems/order";
 import { useProblemStore } from "@/lib/problems/store";
+import { sortCollectionsByOrder, UNGROUPED_FOLDER } from "@/lib/problems/collections";
 import { matchesAllTags } from "@/lib/problems/tags";
-import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Subject } from "@/lib/problems/types";
+import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
@@ -181,8 +183,18 @@ function PaperPage() {
   );
 }
 
+const PICKER_PAGE_SIZE = 24;
+
+const PickerCard = memo(function PickerCard({ problem, selected, onToggle }: {
+  problem: Problem; selected: boolean; onToggle: (id: string) => void;
+}) {
+  return <ProblemCard problem={problem} selecting selected={selected} onToggle={() => onToggle(problem.id)} />;
+});
+
 function PaperPicker() {
   const problems = useProblemStore((s) => s.problems);
+  const collections = useProblemStore((s) => s.collections);
+  const status = useProblemStore((s) => s.status);
   const navigate = useNavigate();
   const addToBasket = usePaperStore((s) => s.addToBasket);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
@@ -192,16 +204,37 @@ function PaperPicker() {
   const [tags, setTags] = useState<string[]>([]);
   const [mastery, setMastery] = useState<"all" | Mastery>("all");
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const searching = query !== deferredQuery;
+  const [folder, setFolder] = useState<string | null>(null);
+  const [group, setGroup] = useState("");
+  const [onlyPicked, setOnlyPicked] = useState(false);
+  const [page, setPage] = useState(1);
+  const pagerRef = useRef<HTMLDivElement>(null);
+  const folders = useMemo(() => [...new Set(collections.map((c) => c.groupName.trim()))]
+    .sort((a, b) => a.localeCompare(b, "zh")), [collections]);
+  const groups = useMemo(() => sortCollectionsByOrder(
+    collections.filter((c) => folder === null || c.groupName.trim() === folder),
+    (c) => c.createdAt,
+  ), [collections, folder]);
+  const groupIds = useMemo(() => new Set(groups.map((c) => c.id)), [groups]);
+  const scoped = useMemo(() => problems.filter((p) => {
+    if (group === "ungrouped") return !p.collectionId;
+    if (group) return p.collectionId === group;
+    return folder === null || Boolean(p.collectionId && groupIds.has(p.collectionId));
+  }), [problems, folder, group, groupIds]);
+
+  useEffect(() => { setPage(1); }, [filter, dateFilter, dateDay, tags, mastery, deferredQuery, folder, group, onlyPicked]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
-    for (const p of problems) for (const t of p.tags) set.add(t);
+    for (const p of scoped) for (const t of p.tags) set.add(t);
     return [...set];
-  }, [problems]);
+  }, [scoped]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = problems.filter((p) => {
+    const q = deferredQuery.trim().toLowerCase();
+    const list = scoped.filter((p) => {
       if (filter !== "all" && p.subject !== filter) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
       if (!matchesAllTags(p.tags, tags)) return false;
@@ -210,30 +243,41 @@ function PaperPicker() {
       return `${p.title} ${p.stem} ${p.tags.join(" ")}`.toLowerCase().includes(q);
     });
     return sortBySourceOrder(list);
-  }, [problems, filter, dateFilter, dateDay, tags, mastery, query]);
+  }, [scoped, filter, dateFilter, dateDay, tags, mastery, deferredQuery]);
+
+  const results = useMemo(() => onlyPicked ? visible.filter((p) => picked.has(p.id)) : visible, [visible, onlyPicked, picked]);
+  const pageCount = Math.max(1, Math.ceil(results.length / PICKER_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageItems = results.slice((currentPage - 1) * PICKER_PAGE_SIZE, currentPage * PICKER_PAGE_SIZE);
+  const visibleIds = useMemo(() => new Set(visible.map((p) => p.id)), [visible]);
 
   const hiddenPicked = useMemo(
-    () => problems.filter((p) => picked.has(p.id) && !visible.some((v) => v.id === p.id)),
-    [problems, picked, visible],
+    () => problems.filter((p) => picked.has(p.id) && !visibleIds.has(p.id)),
+    [problems, picked, visibleIds],
   );
-  const allVisibleSelected = visible.length > 0 && visible.every((p) => picked.has(p.id));
+  const allVisibleSelected = pageItems.length > 0 && pageItems.every((p) => picked.has(p.id));
 
-  function toggle(id: string) {
+  const toggle = useCallback((id: string) => {
     setPicked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }, []);
+
+  function goToPage(next: number) {
+    setPage(next);
+    pagerRef.current?.scrollIntoView({ block: "start" });
   }
 
   function toggleVisible() {
     setPicked((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) {
-        for (const p of visible) next.delete(p.id);
+        for (const p of pageItems) next.delete(p.id);
       } else {
-        for (const p of visible) next.add(p.id);
+        for (const p of pageItems) next.add(p.id);
       }
       return next;
     });
@@ -251,14 +295,28 @@ function PaperPicker() {
   return (
     <div className="flex flex-col gap-6">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">组卷</h1>
-          <p className="mt-1 text-sm text-muted-foreground">篮子里攒题，模板记住排版。</p>
+          <h1 className="font-display text-2xl font-semibold">组卷</h1>
         </div>
 
       <BasketBar />
       <TemplateList />
 
       <div className="flex flex-col gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <select aria-label="选题大组" value={folder === null ? "" : JSON.stringify(folder)}
+            className="h-10 min-w-0 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            onChange={(e) => { setFolder(e.target.value ? JSON.parse(e.target.value) as string : null); setGroup(""); setTags([]); }}>
+            <option value="">全部大组</option>
+            {folders.map((name) => <option key={name} value={JSON.stringify(name)}>{name || UNGROUPED_FOLDER}</option>)}
+          </select>
+          <select aria-label="选题小组" value={group}
+            className="h-10 min-w-0 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            onChange={(e) => { setGroup(e.target.value); setTags([]); }}>
+            <option value="">全部小组</option>
+            {folder === null ? <option value="ungrouped">未分组题目</option> : null}
+            {groups.map((c) => <option key={c.id} value={c.id}>{folder === null ? `${c.groupName || UNGROUPED_FOLDER} / ` : ""}{c.name}</option>)}
+          </select>
+        </div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -296,12 +354,15 @@ function PaperPicker() {
         </div>
       </div>
 
-      <div className="sticky top-16 z-10 flex flex-col gap-2 rounded-xl bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
+      <div ref={pagerRef} className="sticky top-14 z-10 flex scroll-mt-16 flex-col gap-2 border-y border-border bg-surface px-3 py-2 sm:top-16">
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="text-sm text-muted-foreground hover:text-fg" onClick={toggleVisible} disabled={!visible.length}>
-            {allVisibleSelected ? "取消当前全选" : "全选当前"}
+          <button type="button" className="text-sm text-muted-foreground hover:text-fg" onClick={toggleVisible} disabled={!pageItems.length || searching}>
+            {allVisibleSelected ? "取消本页全选" : "全选本页"}
           </button>
           <span className="text-sm text-muted-foreground">已选 {picked.size}</span>
+          <label className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" className="size-4 accent-primary" checked={onlyPicked} onChange={(e) => setOnlyPicked(e.target.checked)} />只看已选
+          </label>
           {picked.size ? (
             <button type="button" className="text-sm text-muted-foreground hover:text-fg" onClick={() => setPicked(new Set())}>
               清空已选
@@ -328,10 +389,23 @@ function PaperPicker() {
             </Button>
           </div>
         </div>
+        <nav aria-label="选题分页" className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+          <span className="text-xs text-muted-foreground" role="status">
+            {searching ? "搜索中…" : `共 ${results.length} 道 · ${results.length ? (currentPage - 1) * PICKER_PAGE_SIZE + 1 : 0}–${Math.min(currentPage * PICKER_PAGE_SIZE, results.length)}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" aria-label="上一页" title="上一页" disabled={currentPage <= 1 || searching} onClick={() => goToPage(currentPage - 1)}><ChevronLeft /></Button>
+            <select aria-label="选题页码" className="h-9 max-w-28 rounded-md border border-border bg-surface px-2 text-sm tabular-nums"
+              value={currentPage} disabled={!results.length || searching} onChange={(e) => goToPage(Number(e.target.value))}>
+              {Array.from({ length: pageCount }, (_, index) => <option key={index} value={index + 1}>{index + 1} / {pageCount} 页</option>)}
+            </select>
+            <Button variant="ghost" size="icon" aria-label="下一页" title="下一页" disabled={currentPage >= pageCount || searching} onClick={() => goToPage(currentPage + 1)}><ChevronRight /></Button>
+          </div>
+        </nav>
         {hiddenPicked.length ? (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
-            <span className="text-xs text-muted-foreground">不在当前筛选里，仍会进卷</span>
-            {hiddenPicked.map((p) => (
+            <span className="text-xs text-muted-foreground">筛选外已选 {hiddenPicked.length} 道</span>
+            {hiddenPicked.slice(0, 6).map((p) => (
               <button
                 key={p.id}
                 type="button"
@@ -343,23 +417,29 @@ function PaperPicker() {
                 <X className="size-3 shrink-0 text-muted-foreground" />
               </button>
             ))}
+            {hiddenPicked.length > 6 ? <span className="text-xs text-muted-foreground">另 {hiddenPicked.length - 6} 道</span> : null}
+            <button type="button" className="text-xs text-primary" onClick={() => {
+              setFolder(null); setGroup(""); setQuery(""); setFilter("all");
+              setDateFilter("all"); setDateDay(""); setTags([]); setMastery("all"); setOnlyPicked(true);
+            }}>查看全部已选</button>
           </div>
         ) : null}
       </div>
 
-      {problems.length === 0 ? (
+      {(status === "idle" || status === "loading") && !problems.length ? (
+        <p role="status" className="py-12 text-center text-sm text-muted-foreground">正在加载题库…</p>
+      ) : problems.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">本子还是空的。</p>
-      ) : visible.length === 0 ? (
+      ) : results.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">当前筛选没有题目。已选 {picked.size} 道仍保留。</p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((problem) => (
-            <ProblemCard
+        <div aria-label="选题列表" aria-busy={searching} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {pageItems.map((problem) => (
+            <PickerCard
               key={problem.id}
               problem={problem}
-              selecting
               selected={picked.has(problem.id)}
-              onToggle={() => toggle(problem.id)}
+              onToggle={toggle}
             />
           ))}
         </div>
@@ -466,9 +546,7 @@ function PaperPreview({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={onBack}>
-              返回排版
-            </Button>
+            <BackButton onClick={onBack} title="返回排版" />
             <Button variant="outline" onClick={downloadTex}>
               下载 TeX
             </Button>

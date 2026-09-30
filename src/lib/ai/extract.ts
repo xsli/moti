@@ -21,6 +21,8 @@ export interface ExtractedFigure {
   svg: string;
   caption: string;
   image?: string;
+  originalImage?: string;
+  redrawError?: string;
   bbox?: ImageBBox;
   subproblem?: number;
 }

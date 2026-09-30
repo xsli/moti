@@ -83,7 +83,7 @@ export function writeCachedProblems(userId: string, problems: Problem[], collect
   const slim = problems.map((p) => ({
     ...p,
     sourceImage: undefined,
-    figures: p.figures.map((f) => ({ ...f, image: undefined, svg: "" })),
+    figures: p.figures.map((f) => ({ ...f, image: undefined, originalImage: undefined, svg: "" })),
   }));
   try {
     window.localStorage.setItem(

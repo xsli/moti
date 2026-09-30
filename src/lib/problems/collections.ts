@@ -84,7 +84,7 @@ export function coerceCollectionList(raw: unknown): Collection[] {
     const next = coerceCollection(item);
     if (next) out.push(next);
   }
-  return out.slice(0, 80);
+  return out;
 }
 
 export function mergeCollections(primary: Collection[], secondary: Collection[]): Collection[] {

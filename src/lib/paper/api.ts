@@ -39,6 +39,7 @@ export const putPaperSessionFn = createServerFn({ method: "POST" })
     z
       .object({
         basket: z.array(z.string().max(80)).max(80),
+        basketUpdatedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional().default(0),
         templates: z.array(z.unknown()).max(20),
         deletedTemplates: z.record(z.string().max(80), z.number()).optional().default({}),
       })
@@ -53,7 +54,17 @@ export const putPaperSessionFn = createServerFn({ method: "POST" })
     await sql.query(
       `insert into paper_sessions (user_id, payload, updated_at)
        values ($1, $2, $3)
-       on conflict (user_id) do update set payload = excluded.payload, updated_at = excluded.updated_at`,
+       on conflict (user_id) do update set
+         payload = case
+           when coalesce((paper_sessions.payload::jsonb ->> 'basketUpdatedAt')::bigint, 0)
+              > coalesce((excluded.payload::jsonb ->> 'basketUpdatedAt')::bigint, 0)
+           then (excluded.payload::jsonb || jsonb_build_object(
+             'basket', paper_sessions.payload::jsonb -> 'basket',
+             'basketUpdatedAt', paper_sessions.payload::jsonb -> 'basketUpdatedAt'
+           ))::text
+           else excluded.payload
+         end,
+         updated_at = excluded.updated_at`,
       [context.userId, payload, now],
     );
     return { ok: true as const };

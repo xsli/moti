@@ -6,8 +6,12 @@ import { ConstructionLoader } from "@/components/capture/construction-loader";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
 import { FigureFrame } from "@/components/notebook/figure-frame";
+import { FigureRedrawControls } from "@/components/notebook/figure-redraw-controls";
+import { redrawDiagram } from "@/lib/image/figure";
+import { abortable } from "@/lib/image/abortable";
 import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,7 +54,7 @@ type Stage = "idle" | "loading" | "review";
 type CaptureMode = "image" | "pdf";
 
 type ExtractProgress = {
-  phase: "prepare" | "upload" | "recognize";
+  phase: "prepare" | "upload" | "recognize" | "redraw";
   current: number;
   total: number;
   startedAt: number;
@@ -223,7 +227,7 @@ function CapturePage() {
     }
   }
 
-  async function applyExtracted(photos: string[], result: ExtractedProblem[]) {
+  async function applyExtracted(photos: string[], result: ExtractedProblem[], signal?: AbortSignal) {
     const collected: DraftItem[] = [];
     for (const item of result) {
       const photo =
@@ -247,6 +251,24 @@ function CapturePage() {
       setStage("idle");
       return;
     }
+    const total = collected.reduce((n, item) => n + item.figures.filter((f) => f.image).length, 0);
+    let current = 0;
+    const startedAt = Date.now();
+    redrawLoop: for (const item of collected) {
+      for (let i = 0; i < item.figures.length; i++) {
+        if (signal?.aborted) break redrawLoop;
+        if (!item.figures[i].image) continue;
+        setProgress({ phase: "redraw", current: ++current, total, startedAt });
+        try {
+          item.figures[i] = await redrawDiagram(item.figures[i], item.stem, signal);
+        } catch (error) {
+          if (signal?.aborted) break redrawLoop;
+          throw error;
+        }
+      }
+    }
+    const failed = collected.flatMap((item) => item.figures).filter((f) => f.redrawError).length;
+    if (failed) toast.warning(`${failed} 张配图未完成重绘，已保留原图`);
     const batchId = crypto.randomUUID();
     setDrafts(
       collected.map((item, i) => ({
@@ -281,7 +303,7 @@ function CapturePage() {
           startedAt: info.startedAt || startedAt,
         });
       });
-      await applyExtracted(photos, result);
+      await applyExtracted(photos, result, ac.signal);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "";
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -462,7 +484,7 @@ function CapturePage() {
           startedAt: info.startedAt || startedAt,
         });
       });
-      await applyExtracted(photos, result);
+      await applyExtracted(photos, result, ac.signal);
     } catch (error) {
       console.error(error);
       const msg = error instanceof Error ? error.message : "";
@@ -518,6 +540,8 @@ function CapturePage() {
         svg: fig.svg,
         caption: fig.caption,
         image: fig.image,
+        originalImage: fig.originalImage,
+        redrawError: fig.redrawError,
         subproblem: fig.subproblem,
       })),
       subject: item.subject,
@@ -636,19 +660,21 @@ function CapturePage() {
       toast.error("这一题没有图也没有文字，无法重新识别。");
       return;
     }
+    const ac = new AbortController();
+    extractAbort.current = ac;
     setStage("loading");
     const startedAt = Date.now();
     setProgress({ phase: "recognize", current: 1, total: 1, startedAt });
     setBusy(true);
     try {
-      const result = await extractProblem({
+      const result = await abortable(extractProblem({
         data: {
           imageDataUrl: current.sourceImage,
           text: current.stem || undefined,
           mode: "extract",
           withAnswer,
         },
-      });
+      }), ac.signal);
       if (!result.ok) {
         toast.error(result.error);
         setStage("review");
@@ -661,6 +687,17 @@ function CapturePage() {
         return;
       }
       const nextFigures = await materializeFigures(current.sourceImage, next.figures);
+      for (let i = 0; i < nextFigures.length; i++) {
+        if (ac.signal.aborted) break;
+        if (!nextFigures[i].image) continue;
+        setProgress({ phase: "redraw", current: i + 1, total: nextFigures.length, startedAt });
+        try {
+          nextFigures[i] = await redrawDiagram(nextFigures[i], next.stem, ac.signal);
+        } catch (error) {
+          if (ac.signal.aborted) break;
+          throw error;
+        }
+      }
       setDrafts((prev) =>
         prev.map((item, i) =>
           i === index
@@ -677,9 +714,10 @@ function CapturePage() {
       );
       setStage("review");
     } catch {
-      toast.error("识别中断了，请再试一次。");
+      if (!ac.signal.aborted) toast.error("识别中断了，请再试一次。");
       setStage("review");
     } finally {
+      extractAbort.current = null;
       setBusy(false);
     }
   }
@@ -985,7 +1023,7 @@ function ReviewForm({
   const subproblemNumbers = useMemo(() => stemSubproblemNumbers(draft.stem), [draft.stem]);
   const difficultyDots = useMemo(() => [1, 2, 3, 4, 5] as const, []);
   const [needCrop, setNeedCrop] = useState(figureCount > 0);
-  const [showSourceImage, setShowSourceImage] = useState(true);
+  const [showSourceImage, setShowSourceImage] = useState(false);
   const [activeFigureIndex, setActiveFigureIndex] = useState(0);
   const [cropBox, setCropBox] = useState(() => defaultCropBox());
   const [cropAnchor, setCropAnchor] = useState(
@@ -1045,6 +1083,8 @@ function ReviewForm({
         subproblem: cropAnchor || undefined,
         svg: "",
         image: dataUrl,
+        originalImage: undefined,
+        redrawError: undefined,
       };
       onChange({
         figureBbox: box,
@@ -1197,8 +1237,13 @@ function ReviewForm({
                   <FigureFrame
                     svg=""
                     image={draft.figures[activeFigureIndex]?.image}
-                    caption="裁切预览"
+                    caption={draft.figures[activeFigureIndex]?.originalImage ? "重绘预览" : "裁切预览"}
                   />
+                  <FigureRedrawControls figure={draft.figures[activeFigureIndex]} stem={draft.stem} onChange={(next) => {
+                    const figures = [...draft.figures];
+                    figures[activeFigureIndex] = next;
+                    onChange({ figures });
+                  }} />
                 </div>
               ) : null}
               <div className="mb-3 flex items-center gap-2">
@@ -1260,9 +1305,7 @@ function ReviewForm({
       </div>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="ghost" onClick={onBack} disabled={busy}>
-          返回重拍
-        </Button>
+        <BackButton onClick={onBack} disabled={busy} title="返回重拍" />
         <Button variant="outline" onClick={onRetry} disabled={busy}>
           {busy ? <LoaderCircle className="animate-spin" /> : null}
           重新识别这一题
