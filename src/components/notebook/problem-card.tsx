@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { MathText } from "@/lib/problems/math-text";
-import { formatLoggedDate } from "@/lib/problems/dates";
 import { tagsForDisplay } from "@/lib/problems/tags";
 import { MASTERY_LABEL, SUBJECT_LABEL, type Mastery, type Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
@@ -22,6 +21,8 @@ export function ProblemCard({
   onToggle,
   onMasteryChange,
   layout = "card",
+  hasHandle = false,
+  sourceLabel,
 }: {
   problem: Problem;
   selecting?: boolean;
@@ -29,6 +30,8 @@ export function ProblemCard({
   onToggle?: () => void;
   onMasteryChange?: (mastery: Mastery) => void;
   layout?: "card" | "row";
+  hasHandle?: boolean;
+  sourceLabel?: string;
 }) {
   const browse = useProblemNavigationKey();
   const figure = problem.figures.find((f) => f.image || f.svg);
@@ -58,15 +61,9 @@ export function ProblemCard({
             ) : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span>{formatLoggedDate(problem.createdAt)}</span>
             {problem.sourceOrder ? (
-              <>
-                <span>·</span>
-                <span>原序 {problem.sourceOrder}</span>
-              </>
+              <span>原题 {problem.sourceOrder}</span>
             ) : null}
-            <span>·</span>
-            <span>{SUBJECT_LABEL[problem.subject]}</span>
             {tagsForDisplay(problem.tags, 2).map((tag) => (
               <Badge key={tag} variant="outline">
                 {tag}
@@ -80,11 +77,11 @@ export function ProblemCard({
         {figure ? (
           <FigureFrame svg={figure.svg} image={figure.image} className="aspect-[5/4] border-b border-border/80" />
         ) : (
-          <div className="flex aspect-[5/4] min-w-0 items-center overflow-hidden bg-secondary/60 px-5">
+          <div className="flex h-32 min-w-0 items-start overflow-hidden border-b border-border/60 bg-surface px-4 py-4">
             <MathText
               text={problem.stem}
               compact
-              className="w-full min-w-0 overflow-hidden line-clamp-6 text-sm text-fg/80"
+              className="w-full min-w-0 overflow-hidden line-clamp-5 text-sm text-fg"
             />
           </div>
         )}
@@ -97,7 +94,7 @@ export function ProblemCard({
           <div className="flex items-start justify-between gap-2">
             <h3
               className={cn(
-                "min-h-11 line-clamp-2 font-display text-base font-semibold leading-snug text-fg group-hover:text-primary",
+                "min-h-8 line-clamp-2 font-display text-base font-semibold leading-snug text-fg group-hover:text-primary",
                 !selecting && onMasteryChange && "pr-20",
               )}
             >
@@ -113,12 +110,11 @@ export function ProblemCard({
             <MathText text={problem.stem} compact className="line-clamp-2 text-sm text-muted-foreground" />
           ) : null}
           <div className="mt-auto flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">{formatLoggedDate(problem.createdAt)}</span>
+            {sourceLabel ? <span className="w-full truncate text-xs text-muted-foreground" title={sourceLabel}>{sourceLabel}</span> : null}
             {problem.sourceOrder ? (
-              <span className="text-xs text-muted-foreground">原序 {problem.sourceOrder}</span>
+              <span className="text-xs text-muted-foreground">原题 {problem.sourceOrder}</span>
             ) : null}
-            <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
-            {tagsForDisplay(problem.tags, 3).map((tag) => (
+            {tagsForDisplay(problem.tags, 2).map((tag) => (
               <Badge key={tag} variant="outline">
                 {tag}
               </Badge>
@@ -132,17 +128,19 @@ export function ProblemCard({
     "group relative w-full min-w-0 text-left shadow-[var(--shadow-border)]",
     "transition-[transform,box-shadow] duration-200 ease-out",
     layout === "row"
-      ? "flex items-center gap-3 rounded-xl bg-card p-3"
+      ? "flex items-center gap-3 rounded-lg bg-card p-3"
       : "flex h-full flex-col overflow-hidden rounded-xl bg-card",
     !selecting && layout === "card" && "hover:-translate-y-0.5 hover:shadow-[var(--shadow-border-hover)]",
     !selecting && layout === "row" && "hover:bg-secondary/40",
     selecting && selected && "ring-2 ring-primary",
+    selecting && layout === "row" && "pr-12",
+    layout === "card" && (selecting || hasHandle) && "pt-10",
   );
 
   const mark = selecting ? (
     <span
       className={cn(
-        "absolute z-10 grid size-6 place-items-center rounded-full border border-border bg-surface/90",
+        "absolute z-10 grid size-6 place-items-center rounded-sm border border-border bg-surface/90",
         layout === "row" ? "right-3 top-1/2 -translate-y-1/2" : "left-3 top-3",
         selected && "border-primary bg-primary text-primary-foreground",
       )}
@@ -153,7 +151,7 @@ export function ProblemCard({
 
   if (selecting) {
     return (
-      <button type="button" onClick={onToggle} className={frame}>
+      <button type="button" aria-pressed={Boolean(selected)} onClick={onToggle} className={frame}>
         {mark}
         {body}
       </button>

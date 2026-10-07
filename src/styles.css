@@ -3,8 +3,8 @@
 @import "katex/dist/katex.min.css";
 
 @theme {
-  --color-bg: #eef1ee;
-  --color-background: #eef1ee;
+  --color-bg: #f7f9f8;
+  --color-background: #f7f9f8;
   --color-surface: #fbfcfb;
   --color-card: #fbfcfb;
   --color-card-foreground: #1b2420;
@@ -32,8 +32,8 @@
   --color-cinnabar: #0d9f78;
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
   --radius: 8px;
   --font-sans: "PingFang SC", "PingFang HK", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-display: "Songti SC", "STSong", "Noto Serif SC", "PMingLiU", serif;
@@ -54,6 +54,12 @@
     background-color: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
+    letter-spacing: 0;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-primary);
   }
 
   button:not(:disabled),
@@ -90,12 +96,7 @@
 }
 
 .paper-wash {
-  background-image: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--color-surface) 70%, white) 0%,
-    var(--color-bg) 48%,
-    color-mix(in oklab, var(--color-bg) 92%, var(--color-rule)) 100%
-  );
+  background: var(--color-bg);
 }
 
 .katex-display {
@@ -111,6 +112,18 @@
 .math-compact .katex-display {
   overflow-x: hidden;
 }
+
+.math-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: currentColor transparent;
+  --math-left-shadow: transparent;
+  --math-right-shadow: transparent;
+  box-shadow: inset 10px 0 10px -10px var(--math-left-shadow), inset -10px 0 10px -10px var(--math-right-shadow);
+}
+.math-scrollable[data-scroll-left="true"] { --math-left-shadow: currentColor; }
+.math-scrollable[data-scroll-right="true"] { --math-right-shadow: currentColor; }
+.math-scrollable::-webkit-scrollbar-button { display: none; }
+.math-equation .katex-display { overflow: visible; }
 
 .exam-preview-wrap {
   overflow-x: auto;

@@ -13,7 +13,7 @@ import {
   BOOK_TOC_PAGE_SIZE,
 } from "./book";
 import { appendBookPdfPage } from "./pdf";
-import { paginateBookChapter } from "./book-pagination";
+import { fitHandoutHeader } from "./handout-pagination";
 import type { BlankLines } from "./space";
 
 export interface BookExportOptions {
@@ -59,7 +59,7 @@ const frontStyle = {
   height: 1123,
   padding: "80px 76px",
   background: "white",
-  color: "#18231f",
+  color: "#000",
   fontFamily: '"Songti SC", "STSong", "SimSun", serif',
   position: "relative" as const,
   boxSizing: "border-box" as const,
@@ -115,6 +115,7 @@ export async function exportBook(
         root.render(
           <ExamSheet
             title={chapter.title}
+            groupName={options.folder}
             dateLabel=""
             items={bookChapterItems(problems, options.blankLines)}
             withAnswers={options.withAnswers}
@@ -122,6 +123,7 @@ export async function exportBook(
             sheetKind="handout"
             localFonts
             onReady={ready}
+            onError={(message) => failed(new Error(message))}
           />,
         );
         await bounded(settled, signal);
@@ -129,13 +131,16 @@ export async function exportBook(
           throw new Error(`「${chapter.title}」有无法显示的公式，请修正后导出`);
         // Use final book page order, including continuation pages, across chapters.
         const pageOffset = pdf.getPageCount();
-        const pages = paginateBookChapter(host, signal, (header, pageIndex) => {
+        const pages = [...host.querySelectorAll<HTMLElement>(".exam-pack .exam-page")];
+        pages.forEach((page, pageIndex) => {
+          const header = page.querySelector<HTMLElement>(".hn-head")!;
           const quote = quoteDeck[(pageOffset + pageIndex) % quoteDeck.length];
           const meta = header.querySelector<HTMLElement>(".hn-meta");
           const by = meta?.querySelector<HTMLElement>(".hn-meta-by");
           if (!quote || !meta || !by) throw new Error("章节名言页眉缺失");
-          by.textContent = `——${quote.by}`;
+          by.textContent = `——${quote.person}`;
           meta.replaceChildren(document.createTextNode(quote.text.replace(/。$/, "")), by);
+          fitHandoutHeader(header);
         });
         if (!pages.length) throw new Error(`「${chapter.title}」排版失败`);
         pageCounts.push(pages.length);
@@ -208,7 +213,7 @@ export async function exportBook(
               }}
             >
               <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{entry.title}</span>
-              <span style={{ whiteSpace: "nowrap", color: "#58635d" }}>
+              <span style={{ whiteSpace: "nowrap" }}>
                 {entry.problemIds.length} 题
               </span>
               <span style={{ width: 30, textAlign: "right" }}>{entry.page}</span>

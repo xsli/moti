@@ -9,6 +9,7 @@ export type CaptureHold = {
   index: number;
   stage: "idle" | "loading" | "review";
   sourceMode: "image" | "pdf";
+  inputMode?: "image" | "pdf" | "text";
   mergePdfPages: boolean;
 };
 
@@ -34,6 +35,7 @@ type Meta = {
   index: number;
   stage: CaptureHold["stage"];
   sourceMode: CaptureHold["sourceMode"];
+  inputMode?: CaptureHold["inputMode"];
   mergePdfPages: boolean;
   imageCount: number;
   draftCount: number;
@@ -69,7 +71,7 @@ export function writeCaptureHold(patch: Partial<CaptureHold>): CaptureHold {
 }
 
 export async function persistCaptureHold(): Promise<void> {
-  if (typeof sessionStorage === "undefined" || typeof caches === "undefined") return;
+  if (typeof sessionStorage === "undefined") return;
   const meta: Meta = {
     text: memory.text,
     collectionId: memory.collectionId,
@@ -77,6 +79,7 @@ export async function persistCaptureHold(): Promise<void> {
     index: memory.index,
     stage: memory.stage,
     sourceMode: memory.sourceMode,
+    inputMode: memory.inputMode,
     mergePdfPages: memory.mergePdfPages,
     imageCount: memory.images.length,
     draftCount: memory.drafts.length,
@@ -87,6 +90,7 @@ export async function persistCaptureHold(): Promise<void> {
   } catch {
     /* ignore */
   }
+  if (typeof caches === "undefined") return;
   try {
     const cache = await caches.open(CACHE);
     await Promise.all(
@@ -113,7 +117,7 @@ export async function persistCaptureHold(): Promise<void> {
 }
 
 export async function loadCaptureHold(): Promise<CaptureHold | null> {
-  if (memory.images.length || memory.jobId || memory.drafts.length) return memory;
+  if (memory.images.length || memory.text || memory.jobId || memory.drafts.length) return memory;
   if (typeof sessionStorage === "undefined") return null;
   const raw = sessionStorage.getItem(META_KEY);
   const jobOnly = sessionStorage.getItem("moti-capture-job") ?? "";
@@ -135,6 +139,7 @@ export async function loadCaptureHold(): Promise<CaptureHold | null> {
         ? "loading"
         : "idle";
   memory.sourceMode = meta?.sourceMode === "pdf" ? "pdf" : "image";
+  memory.inputMode = meta?.inputMode === "text" || meta?.inputMode === "pdf" || meta?.inputMode === "image" ? meta.inputMode : memory.sourceMode;
   memory.mergePdfPages = meta?.mergePdfPages !== false;
   if (typeof caches !== "undefined") {
     try {
@@ -164,7 +169,7 @@ export async function loadCaptureHold(): Promise<CaptureHold | null> {
       /* keep meta */
     }
   }
-  if (!memory.images.length && !memory.jobId && !memory.drafts.length) return null;
+  if (!memory.images.length && !memory.text && !memory.jobId && !memory.drafts.length && !meta) return null;
   return memory;
 }
 
@@ -176,6 +181,7 @@ export async function clearCaptureHold(): Promise<void> {
   memory.index = 0;
   memory.stage = "idle";
   memory.sourceMode = "image";
+  memory.inputMode = "image";
   memory.mergePdfPages = true;
   try {
     sessionStorage.removeItem(META_KEY);

@@ -1,6 +1,6 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, LoaderCircle, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImagePlus, LoaderCircle, MoreHorizontal, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +83,8 @@ function ProblemPage() {
   return <ProblemDetail key={problem.id} problem={problem} />;
 }
 
+const DetailEditing = createContext({ enabled: false, setPending: (_update: (count: number) => number) => {} });
+
 function ProblemDetail({ problem }: { problem: Problem }) {
   const navigate = useNavigate();
   const { browse } = Route.useSearch();
@@ -97,8 +100,12 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const updateProblem = useProblemStore((s) => s.updateProblem);
   const deleteProblem = useProblemStore((s) => s.deleteProblem);
   const addToBasket = usePaperStore((s) => s.addToBasket);
+  const inBasket = usePaperStore((s) => s.basket.includes(problem.id));
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [notes, setNotes] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [pending, setPending] = useState(0);
+  const [variantOpen, setVariantOpen] = useState(false);
+  const collection = useProblemStore((s) => s.collections.find((c) => c.id === problem.collectionId));
   const [cropOpen, setCropOpen] = useState(false);
   const [cropBox, setCropBox] = useState<ImageBBox>({ x: 0.38, y: 0.26, w: 0.58, h: 0.6 });
   const cropBoxRef = useRef(cropBox);
@@ -106,7 +113,6 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const [cropReplaceId, setCropReplaceId] = useState<string | null>(null);
   const [cropping, setCropping] = useState(false);
   const [solving, setSolving] = useState(false);
-  const noteValue = notes ?? problem.notes;
   const hasAnswer = Boolean(problem.correctAnswer.trim());
   const parentGroupId = problem.collectionId || "ungrouped";
   const subproblemNumbers = useMemo(() => stemSubproblemNumbers(problem.stem), [problem.stem]);
@@ -195,6 +201,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   }
 
   return (
+    <DetailEditing.Provider value={{ enabled: editing, setPending }}>
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <BackButton><Link to="/" search={{ g: parentGroupId }} /></BackButton>
@@ -212,26 +219,26 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Button>
         </nav>
         <div className="flex flex-wrap gap-2">
-          <VariantDialog source={problem} />
+          <VariantDialog source={problem} open={variantOpen} onOpenChange={setVariantOpen} />
           <Button
             variant="outline"
             size="sm"
+            disabled={inBasket}
             onClick={() => {
               const n = addToBasket([problem.id]);
-              toast.success(n ? "已放入组卷篮" : "已在组卷篮里");
+              if (n) toast.success("已加入组卷篮");
+              else toast.error("题目已选中，或已达选题上限");
             }}
           >
-            加入组卷篮
+            {inBasket ? "已加入组卷篮" : "加入组卷篮"}
           </Button>
-          <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="size-4" />
-            删除
-          </Button>
+          <Button variant={editing ? "secondary" : "outline"} size="sm" disabled={pending > 0} title={pending ? "请先保存或取消当前修改" : "编辑题目"} onClick={() => setEditing(!editing)}><Pencil />{editing ? "退出编辑" : "编辑"}</Button>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="更多操作" title="更多操作"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={!problem.stem.trim()} onSelect={() => setVariantOpen(true)}>生成变式</DropdownMenuItem><DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}><Trash2 />删除题目</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
         </div>
       </div>
 
-      <article className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-        <div className="flex flex-wrap items-center gap-2 px-5 pt-5 sm:px-6">
+      <article className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="accent">{SUBJECT_LABEL[problem.subject]}</Badge>
           <div className="ml-1 flex items-center gap-0.5" aria-label={`难度 ${problem.difficulty} 级`}>
             <span className="mr-1 text-xs text-muted-foreground">难度</span>
@@ -245,6 +252,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
                 )}
                 aria-label={`设为 ${level} 级难度`}
                 title={`${level} 级难度`}
+                disabled={!editing}
                 onClick={() => void updateProblem(problem.id, { difficulty: level })}
               >
                 <Star className={cn("size-3.5", level <= problem.difficulty && "fill-current")} />
@@ -268,12 +276,11 @@ function ProblemDetail({ problem }: { problem: Problem }) {
             ))}
           </select>
         </div>
-        <div className="px-5 py-5 sm:px-6">
+        <div className="py-4">
           <EditableTitle
             value={problem.title}
             onSave={(title) => void updateProblem(problem.id, { title })}
           />
-          <p className="mt-2 text-sm text-muted-foreground">{formatLoggedDateLong(problem.createdAt)}</p>
           <div className="mt-4">
             <EditableMath
               value={problem.stem}
@@ -281,12 +288,12 @@ function ProblemDetail({ problem }: { problem: Problem }) {
               previewClass="text-lg"
               tall
               header={
-                <CollectionPicker
+                editing ? <CollectionPicker
                   value={problem.collectionId ?? ""}
                   onChange={(id) => void updateProblem(problem.id, { collectionId: id || undefined })}
                   label=""
                   showFieldLabels={false}
-                />
+                /> : <p className="text-sm text-muted-foreground">{collection ? `${collection.groupName || "未分大组"} / ${collection.name}` : "未分组"}</p>
               }
               onSave={(stem) => void updateProblem(problem.id, { stem })}
               renderPreview={(stem) => (
@@ -301,10 +308,10 @@ function ProblemDetail({ problem }: { problem: Problem }) {
             />
           </div>
           <div className="mt-5">
-            <TagEditor
+            {editing ? <TagEditor
               tags={problem.tags}
               onChange={(tags) => void updateProblem(problem.id, { tags })}
-            />
+            /> : <div className="flex flex-wrap gap-2">{problem.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}</div>}
           </div>
         </div>
         {problem.figures
@@ -312,17 +319,17 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           .map((figure) => (
             <FigureWithActions key={figure.id} figure={figure} stem={problem.stem} onChange={updateFigure} onRecrop={openCrop} onRemove={(item) => removeFigure(item.id)} />
           ))}
-        {problem.sourceImage ? (
+        {editing && problem.sourceImage ? (
           <div className="flex justify-end border-t border-border px-5 py-3">
             <Button variant="ghost" size="sm" onClick={() => openCrop()}>
-              <Scissors className="size-4" />
+              <ImagePlus className="size-4" />
               添加图形
             </Button>
           </div>
         ) : null}
       </article>
 
-      <Panel>
+      <Panel tone="answer">
         <EditableMath
           value={problem.correctAnswer}
           placeholder="正确答案"
@@ -340,7 +347,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         />
       </Panel>
 
-      <Panel>
+      <Panel tone="analysis">
         <EditableMath
           value={problem.analysis}
           placeholder="解析"
@@ -351,18 +358,8 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         />
       </Panel>
 
-      <Panel title="笔记">
-        <Textarea
-          value={noteValue}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => {
-            if (notes !== null && notes !== problem.notes) {
-              void updateProblem(problem.id, { notes });
-            }
-          }}
-          placeholder="写下自己要记住的一点"
-        />
-      </Panel>
+      {editing || (problem.notes.trim() && !/^(?:来源|出处)[：:][^\n]+$/.test(problem.notes.trim())) ? <Panel><EditableMath value={problem.notes} placeholder="笔记" header={<FieldHeading>笔记</FieldHeading>} onSave={(notes) => void updateProblem(problem.id, { notes })} /></Panel> : null}
+      <details className="border-t border-border pt-4 text-sm text-muted-foreground"><summary className="cursor-pointer">来源信息</summary><div className="mt-3 space-y-3">{/^(?:来源|出处)[：:][^\n]+$/.test(problem.notes.trim()) ? <p>{problem.notes}</p> : null}<p>录入日期：{formatLoggedDateLong(problem.createdAt)}</p>{problem.sourceOrder ? <p>原题号：{problem.sourceOrder}</p> : null}{problem.sourceImage ? <img src={problem.sourceImage} alt="原题截图" loading="lazy" className="max-h-[600px] max-w-full object-contain" /> : <p>暂无原题截图</p>}</div></details>
 
       <Dialog open={cropOpen} onOpenChange={setCropOpen}>
         <DialogContent className="max-w-lg">
@@ -406,7 +403,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>从本子里拿掉？</DialogTitle>
+            <DialogTitle>删除这道题？</DialogTitle>
             <DialogDescription>删除后无法恢复。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -428,6 +425,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
         </DialogContent>
       </Dialog>
     </div>
+    </DetailEditing.Provider>
   );
 }
 
@@ -435,14 +433,16 @@ function Panel({
   title,
   action,
   children,
+  tone,
 }: {
   title?: string;
   action?: ReactNode;
   children: ReactNode;
+  tone?: "answer" | "analysis";
 }) {
   const hasHeader = Boolean(title || action);
   return (
-    <section className="rounded-xl bg-surface p-5 shadow-[var(--shadow-border)]">
+    <section className={cn("min-w-0 border-l-2 p-4", tone === "answer" ? "border-emerald-700/40 bg-emerald-50/70 text-emerald-900" : tone === "analysis" ? "border-sky-700/40 bg-sky-50/70 text-sm text-sky-900 [&_.katex]:text-[1.05em]!" : "border-border")}>
       {hasHeader ? (
         <div className="flex items-center justify-between gap-3">
           {title ? <FieldHeading>{title}</FieldHeading> : <span />}
@@ -456,23 +456,27 @@ function Panel({
 
 function FieldHeading({ children, emphasized = false }: { children: ReactNode; emphasized?: boolean }) {
   return (
-    <h2 className={cn(emphasized ? "text-base font-semibold text-fg" : "text-xs font-medium tracking-wider text-muted-foreground")}>
+    <h2 className={cn(emphasized ? "text-sm font-semibold" : "text-sm font-medium text-muted-foreground")}>
       {children}
     </h2>
   );
 }
 
 function EditToggle({
+  label = "内容",
   editing,
   onEdit,
   onSave,
   onCancel,
 }: {
+  label?: string;
   editing: boolean;
   onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const { enabled } = useContext(DetailEditing);
+  if (!enabled) return null;
   if (!editing) {
     return (
       <Tooltip>
@@ -480,13 +484,13 @@ function EditToggle({
           <button
             type="button"
             className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-rule hover:text-fg"
-            aria-label="修改"
+            aria-label={`编辑${label}`}
             onClick={onEdit}
           >
             <Pencil className="size-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>修改</TooltipContent>
+        <TooltipContent>编辑{label}</TooltipContent>
       </Tooltip>
     );
   }
@@ -503,12 +507,16 @@ function EditToggle({
 }
 
 function EditableTitle({ value, onSave }: { value: string; onSave: (next: string) => void }) {
+  const { enabled } = useContext(DetailEditing);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   useUnsavedEdit(editing && draft !== value);
   useEffect(() => {
     if (!editing) setDraft(value);
   }, [value, editing]);
+  useEffect(() => {
+    if (!enabled) { setEditing(false); setDraft(value); }
+  }, [enabled, value]);
 
   function save() {
     const next = draft.trim().slice(0, 80) || "未命名题目";
@@ -533,9 +541,10 @@ function EditableTitle({ value, onSave }: { value: string; onSave: (next: string
           autoFocus
         />
       ) : (
-        <h1 className="min-w-0 flex-1 font-display text-xl font-semibold tracking-tight sm:text-2xl">{value}</h1>
+        <h1 className="min-w-0 flex-1 font-display text-xl font-semibold sm:text-2xl">{value}</h1>
       )}
       <EditToggle
+        label="标题"
         editing={editing}
         onEdit={() => setEditing(true)}
         onSave={save}
@@ -561,9 +570,11 @@ function FigureWithActions({
   onRecrop: (figure: Figure) => void;
   onRemove: (figure: Figure) => void | Promise<void>;
 }) {
+  const { enabled } = useContext(DetailEditing);
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
       <FigureFrame svg={figure.svg} image={figure.image} caption={figure.caption || figure.title} />
+      {enabled ? <>
       <FigureRedrawControls figure={figure} stem={stem} onChange={onChange} />
       <div className="flex justify-end gap-1 border-t border-border px-2 py-1.5">
         <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onRecrop(figure)}>
@@ -577,6 +588,7 @@ function FigureWithActions({
         </Button>
         </ConfirmAction>
       </div>
+      </> : null}
     </div>
   );
 }
@@ -599,7 +611,7 @@ function StemWithFigures({
     <div className="space-y-3">
       {sections.map((section, index) => (
         <div key={`${section.subproblem}-${index}`}>
-          <MathText text={section.text} className="text-lg" />
+          <MathText text={section.text} className="text-base" />
           {section.subproblem > 0
             ? figures
                 .filter((figure) => figure.subproblem === section.subproblem)
@@ -634,12 +646,16 @@ function EditableMath({
   headerAction?: ReactNode;
   emptyText?: string;
 }) {
+  const { enabled } = useContext(DetailEditing);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   useUnsavedEdit(editing && draft !== value);
   useEffect(() => {
     if (!editing) setDraft(value);
   }, [value, editing]);
+  useEffect(() => {
+    if (!enabled) { setEditing(false); setDraft(value); }
+  }, [enabled, value]);
 
   function save() {
     setEditing(false);
@@ -658,14 +674,14 @@ function EditableMath({
           <div className="min-w-0">{header}</div>
           <div className="flex shrink-0 items-center gap-2">
             {headerAction}
-            <EditToggle editing={editing} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+            <EditToggle label={placeholder} editing={editing} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
           </div>
         </div>
       ) : null}
       {editing ? (
         <>
           {!header ? <div className="flex justify-end">
-            <EditToggle editing onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+            <EditToggle label={placeholder} editing onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
           </div> : null}
           <Textarea
             value={draft}
@@ -686,7 +702,7 @@ function EditableMath({
       ) : header ? (
         <div className="min-w-0">
           {value.trim() ? (
-            renderPreview ? renderPreview(value) : <MathText text={value} className={previewClass} />
+            renderPreview ? renderPreview(value) : <MathText text={value} tight className={previewClass} />
           ) : (
             <p className="text-sm text-muted-foreground">{emptyText}</p>
           )}
@@ -695,12 +711,12 @@ function EditableMath({
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
           <div className="min-w-0">
             {value.trim() ? (
-              renderPreview ? renderPreview(value) : <MathText text={value} className={previewClass} />
+              renderPreview ? renderPreview(value) : <MathText text={value} tight className={previewClass} />
             ) : (
               <p className="text-sm text-muted-foreground">{emptyText}</p>
             )}
           </div>
-          <EditToggle editing={false} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
+          <EditToggle label={placeholder} editing={false} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
         </div>
       )}
     </div>
@@ -708,6 +724,12 @@ function EditableMath({
 }
 
 function useUnsavedEdit(dirty: boolean) {
+  const { setPending } = useContext(DetailEditing);
+  useEffect(() => {
+    if (!dirty) return;
+    setPending((count) => count + 1);
+    return () => setPending((count) => count - 1);
+  }, [dirty, setPending]);
   useBlocker({
     shouldBlockFn: () => dirty && !window.confirm("有尚未保存的修改，确定放弃修改并离开？"),
     enableBeforeUnload: dirty,

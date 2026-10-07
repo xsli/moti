@@ -45,8 +45,8 @@ export function TagFilter({
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          "h-9 max-w-44 truncate rounded-full px-3.5 text-sm transition-colors",
-          value.length || open ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+          "h-9 max-w-44 truncate rounded-md border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+          value.length || open ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-surface text-fg hover:bg-secondary",
         )}
       >
         {label}
@@ -82,7 +82,7 @@ export function TagFilter({
                     <span
                       className={cn(
                         "grid size-4 shrink-0 place-items-center rounded border border-border",
-                        value.includes(item) && "border-fg bg-fg text-primary-foreground",
+                        value.includes(item) && "border-primary bg-primary/10 text-primary",
                       )}
                     >
                       {value.includes(item) ? <Check className="size-3" /> : null}

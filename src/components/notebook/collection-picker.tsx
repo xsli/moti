@@ -9,12 +9,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   COLLECTION_KIND_LABEL,
   COLLECTION_KINDS,
   UNGROUPED_FOLDER,
   collectionFolders,
   defaultCollectionName,
+  sortCollectionsByOrder,
   type CollectionKind,
 } from "@/lib/problems/collections";
 import { useProblemStore } from "@/lib/problems/store";
@@ -25,7 +27,7 @@ const NEW = "__new__";
 export function CollectionPicker({
   value,
   onChange,
-  label = "收入",
+  label = "",
   showFieldLabels = true,
 }: {
   value: string;
@@ -52,7 +54,7 @@ export function CollectionPicker({
     return names;
   }, [collections, folder]);
   const groups = useMemo(
-    () => collections.filter((item) => (item.groupName || "") === folder),
+    () => sortCollectionsByOrder(collections.filter((item) => (item.groupName || "") === folder), (item) => item.createdAt),
     [collections, folder],
   );
 
@@ -97,45 +99,17 @@ export function CollectionPicker({
     }
   }
 
-  const selectClass = "h-9 min-w-32 max-w-48 rounded-md bg-secondary px-2 text-sm outline-none";
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {label ? <span className="text-sm text-muted-foreground">{label}</span> : null}
-      <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+    <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+      {label ? <span className="text-sm text-muted-foreground sm:col-span-2">{label}</span> : null}
+      <div className="grid min-w-0 gap-1.5 text-sm text-muted-foreground">
         {showFieldLabels ? "大组" : null}
-        <select
-          value={folder}
-          onChange={(e) => pickFolder(e.target.value)}
-          className={selectClass}
-          aria-label="选择大组"
-        >
-          <option value="">{UNGROUPED_FOLDER}</option>
-          {folders.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-          <option value={NEW}>新增大组…</option>
-        </select>
-      </label>
-      <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <SearchableSelect label="选择大组" value={folder} onChange={pickFolder} options={[{ value: "", label: UNGROUPED_FOLDER }, ...folders.map((item) => ({ value: item, label: item })), { value: NEW, label: "新增大组…" }]} />
+      </div>
+      <div className="grid min-w-0 gap-1.5 text-sm text-muted-foreground">
         {showFieldLabels ? "小组" : null}
-        <select
-          value={value}
-          onChange={(e) => pickGroup(e.target.value)}
-          className={selectClass}
-          aria-label="选择小组"
-        >
-          <option value="">不收入组</option>
-          {groups.map((item) => (
-            <option key={item.id} value={item.id}>
-              {COLLECTION_KIND_LABEL[item.kind]} · {item.name}
-            </option>
-          ))}
-          <option value={NEW}>新建小组…</option>
-        </select>
-      </label>
+        <SearchableSelect label="选择小组" value={value} onChange={pickGroup} options={[{ value: "", label: "未分组" }, ...groups.map((item) => ({ value: item.id, label: item.name })), { value: NEW, label: "新建小组…" }]} />
+      </div>
 
       <Dialog open={dialog === "folder"} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent>
@@ -188,7 +162,7 @@ export function CollectionPicker({
                 onClick={() => setKind(item)}
                 className={cn(
                   "h-8 rounded-full px-3 text-sm",
-                  kind === item ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground",
+                  kind === item ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground",
                 )}
               >
                 {COLLECTION_KIND_LABEL[item]}

@@ -26,8 +26,10 @@ const draftSchema = variantSchema.extend({
 type Draft = z.infer<typeof draftSchema>;
 const selectClass = "h-10 w-full min-w-0 rounded-md border border-border bg-surface px-2 text-sm";
 
-export function VariantDialog({ source }: { source: Problem }) {
-  const [open, setOpen] = useState(false);
+export function VariantDialog({ source, open: controlledOpen, onOpenChange }: { source: Problem; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [restored, setRestored] = useState(false);
   const [busy, setBusy] = useState<"generate" | "save" | null>(null);
@@ -126,13 +128,13 @@ export function VariantDialog({ source }: { source: Problem }) {
 
   const selectedCount = drafts.filter((d) => d.selected && !d.saved).length;
   return <>
-    <Button variant="outline" size="sm" onClick={() => setOpen(true)} disabled={!source.stem.trim()}>
-      <Sparkles className="size-4" />出变式
-    </Button>
+    {controlledOpen === undefined ? <Button variant="outline" size="sm" onClick={() => setOpen(true)} disabled={!source.stem.trim()}>
+      <Sparkles className="size-4" />生成变式
+    </Button> : null}
     <Dialog open={open} onOpenChange={(value) => { if (!busyRef.current) setOpen(value); }}>
       <DialogContent className="flex max-h-[90dvh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-12">
-          <DialogTitle>出变式 <span className="ml-2 font-sans text-xs font-normal text-muted-foreground">原型</span></DialogTitle>
+          <DialogTitle>生成变式</DialogTitle>
           <DialogDescription className="break-words">原题 · {source.title}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

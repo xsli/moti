@@ -51,7 +51,7 @@ export const Route = createFileRoute("/capture")({
 });
 
 type Stage = "idle" | "loading" | "review";
-type CaptureMode = "image" | "pdf";
+type CaptureMode = "image" | "pdf" | "text";
 
 type ExtractProgress = {
   phase: "prepare" | "upload" | "recognize" | "redraw";
@@ -148,6 +148,7 @@ function CapturePage() {
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode>("image");
+  const [supplement, setSupplement] = useState(false);
   const [pdfBatch, setPdfBatch] = useState(false);
   const [mergePdfPages, setMergePdfPages] = useState(true);
   const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(null);
@@ -181,7 +182,7 @@ function CapturePage() {
       restored.current = true;
       if (!hold) return;
       setPdfBatch(hold.sourceMode === "pdf");
-      setCaptureMode(hold.sourceMode);
+      setCaptureMode(hold.inputMode ?? hold.sourceMode);
       setMergePdfPages(hold.mergePdfPages);
       if (hold.collectionId && (hold.stage !== "idle" || !incomingGroup))
         setCollectionId(hold.collectionId);
@@ -213,12 +214,13 @@ function CapturePage() {
       index,
       stage,
       sourceMode: pdfBatch ? "pdf" : "image",
+      inputMode: captureMode,
       mergePdfPages,
       jobId: jobIdRef.current,
     });
     const timer = window.setTimeout(() => void persistCaptureHold(), 400);
     return () => window.clearTimeout(timer);
-  }, [images, text, collectionId, drafts, index, stage, pdfBatch, mergePdfPages]);
+  }, [images, text, collectionId, drafts, index, stage, pdfBatch, mergePdfPages, captureMode]);
 
   function pickCollection(id: string) {
     setCollectionId(id);
@@ -404,7 +406,7 @@ function CapturePage() {
   }, [captureMode, stage]);
 
   async function runExtract() {
-    if (!images.length && !text.trim()) {
+    if (!(captureMode !== "text" && images.length) && !text.trim()) {
       toast.error("请先拍照，或粘贴题目文字。");
       return;
     }
@@ -413,15 +415,15 @@ function CapturePage() {
     setStage("loading");
     const startedAt = Date.now();
     setProgress({
-      phase: images.length ? "upload" : "recognize",
+      phase: captureMode !== "text" && images.length ? "upload" : "recognize",
       current: 1,
-      total: Math.max(1, images.length),
+      total: captureMode === "text" ? 1 : Math.max(1, images.length),
       startedAt,
     });
     setBusy(true);
     try {
-      let photos = images;
-      if (pdfBatch && mergePdfPages && images.length) {
+      let photos = captureMode === "text" ? [] : images;
+      if (captureMode !== "text" && pdfBatch && mergePdfPages && images.length) {
         setProgress({ phase: "prepare", current: 1, total: 1, startedAt });
         photos = await preparePdfProblemImages(images, ac.signal);
         toast.success(`已将 ${images.length} 页合并为一张长图。`);
@@ -474,6 +476,7 @@ function CapturePage() {
         collectionId,
         stage: "loading",
         sourceMode: "image",
+        inputMode: captureMode === "text" ? "text" : "image",
       });
       void persistCaptureHold();
       const result = await waitForJob(started.jobId, ac.signal, (info) => {
@@ -594,7 +597,7 @@ function CapturePage() {
 
   function collectionLabel() {
     const name = collections.find((item) => item.id === collectionId)?.name;
-    return name ? `已收入「${name}」` : "已收入本子";
+    return name ? `已保存到「${name}」` : "已保存到题库";
   }
 
   function backToRecapture() {
@@ -610,6 +613,7 @@ function CapturePage() {
       index: 0,
       stage: "idle",
       sourceMode: pdfBatch ? "pdf" : "image",
+      inputMode: captureMode,
       mergePdfPages,
       jobId: "",
     });
@@ -727,7 +731,7 @@ function CapturePage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight">拍题</h1>
+        <h1 className="font-display text-2xl font-semibold">录题</h1>
         <div className="mt-4">
           <CollectionPicker value={collectionId} onChange={pickCollection} />
         </div>
@@ -758,6 +762,7 @@ function CapturePage() {
                 captureMode === "image" ? "bg-surface text-fg shadow-sm" : "text-muted-foreground",
               )}
               onClick={() => setCaptureMode("image")}
+              aria-pressed={captureMode === "image"}
             >
               <Image className="size-4" />
               图片
@@ -769,12 +774,15 @@ function CapturePage() {
                 captureMode === "pdf" ? "bg-surface text-fg shadow-sm" : "text-muted-foreground",
               )}
               onClick={() => setCaptureMode("pdf")}
+              aria-pressed={captureMode === "pdf"}
             >
               <FileText className="size-4" />
               PDF
             </button>
+            <button type="button" aria-pressed={captureMode === "text"} onClick={() => setCaptureMode("text")}
+              className={cn("inline-flex h-9 items-center gap-2 rounded-md px-4 text-sm font-medium", captureMode === "text" ? "bg-surface text-fg shadow-sm" : "text-muted-foreground")}><Type className="size-4" />文字</button>
           </div>
-          <div
+          {captureMode !== "text" ? <div
             role="button"
             tabIndex={pdfProgress ? -1 : 0}
             aria-disabled={Boolean(pdfProgress)}
@@ -847,16 +855,16 @@ function CapturePage() {
                   )}
                 </span>
                 <span className="font-display text-lg font-semibold">
-                  {captureMode === "pdf" ? "选择或拖入 PDF" : "拍照、粘贴或拖入试卷"}
+                  {captureMode === "pdf" ? "选择 PDF" : "选择图片"}
                 </span>
                 <span className="text-sm text-muted-foreground">
                   {captureMode === "pdf"
-                    ? `PDF 会在本地转换为页面图，最多读取 ${MAX_CAPTURE_IMAGES} 页，再自动切分题目。`
-                    : `复制截图后按 Ctrl+V / ⌘V 即可。一次最多 ${MAX_CAPTURE_IMAGES} 张，一页多题会自动分开。`}
+                    ? `最多 ${MAX_CAPTURE_IMAGES} 页`
+                    : `最多 ${MAX_CAPTURE_IMAGES} 张`}
                 </span>
               </>
             )}
-          </div>
+          </div> : null}
           <input
             ref={inputRef}
             type="file"
@@ -889,19 +897,9 @@ function CapturePage() {
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="stem-text" className="inline-flex items-center gap-1.5">
-              <Type className="size-3.5" />
-              没有图也可以先贴文字
-            </Label>
-            <Textarea
-              id="stem-text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="粘贴题目。若照片里有图，文字可作为补充。"
-            />
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          {captureMode !== "text" ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-primary" checked={supplement || Boolean(text)} onChange={(e) => setSupplement(e.target.checked)} disabled={Boolean(text)} />补充题目信息{Boolean(text) ? "（已填写）" : ""}</label> : null}
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
               className="size-4 accent-primary"
@@ -912,17 +910,31 @@ function CapturePage() {
                 window.localStorage.setItem("moti-extract-with-answer", next ? "1" : "0");
               }}
             />
-            同时生成答案和解析（更慢）
+            生成答案与解析
           </label>
+          </div>
+          {captureMode === "text" || supplement || Boolean(text) ? <div className="flex flex-col gap-2">
+            <Label htmlFor="stem-text" className="inline-flex items-center gap-1.5">
+              <Type className="size-3.5" />
+              {captureMode === "text" ? "题目文字" : "补充题目信息"}
+            </Label>
+            <Textarea
+              id="stem-text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={captureMode === "text" ? "粘贴题目" : "补充条件或说明"}
+              className={captureMode === "text" ? "min-h-52" : undefined}
+            />
+          </div> : null}
           <Button
             size="lg"
             onClick={() => void runExtract()}
-            disabled={busy || Boolean(pdfProgress)}
+            disabled={busy || Boolean(pdfProgress) || (captureMode === "text" ? !text.trim() : !images.length && !text.trim())}
           >
             {busy ? <LoaderCircle className="animate-spin" /> : null}
-            {images.length > 1
+            {captureMode !== "text" && images.length > 1
               ? `一次识别 ${images.length} ${pdfBatch && !mergePdfPages ? "页" : "张"}`
-              : "识别题干"}
+              : "识别题目"}
           </Button>
           {collectionId ? (
             <Button
@@ -1212,7 +1224,7 @@ function ReviewForm({
                         type="button"
                         className={cn(
                           "h-8 px-3 text-xs",
-                          figureIndex === activeFigureIndex && "bg-fg text-primary-foreground",
+                          figureIndex === activeFigureIndex && "bg-primary/10 text-primary",
                         )}
                         onClick={() => selectFigure(figureIndex)}
                       >
@@ -1401,7 +1413,7 @@ function Chip({
       className={cn(
         "h-9 rounded-full px-3 text-sm transition-colors",
         active
-          ? "bg-fg text-primary-foreground"
+          ? "bg-primary/10 text-primary"
           : "bg-secondary text-muted-foreground hover:text-fg",
       )}
     >

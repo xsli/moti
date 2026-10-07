@@ -79,6 +79,7 @@ export function SortableProblems({
             <button
               type="button"
               aria-label="拖动排序"
+              title="拖动排序"
               className={cn(
                 "absolute z-10 grid place-items-center text-muted-foreground hover:text-fg",
                 layout === "row" ? "left-0 top-1/2 size-8 -translate-y-1/2" : "left-2 top-2 size-8 rounded-md bg-surface/80",
@@ -95,6 +96,7 @@ export function SortableProblems({
           <ProblemCard
             problem={problem}
             layout={layout}
+            hasHandle={sortable}
             selecting={selecting}
             selected={selected.has(problem.id)}
             onToggle={() => onToggle(problem.id)}

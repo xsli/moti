@@ -21,7 +21,7 @@ export type PaperSession = {
   deletedTemplates: Record<string, number>;
 };
 
-const BASKET_MAX = 80;
+export const BASKET_MAX = 1000;
 const TEMPLATE_MAX = 20;
 const DELETED_TEMPLATE_MAX = 100;
 
@@ -165,6 +165,13 @@ export function removeFromBasket(session: PaperSession, id: string): PaperSessio
     basket: session.basket.filter((item) => item !== id),
     basketUpdatedAt: Math.max(Date.now(), session.basketUpdatedAt + 1),
   };
+}
+
+export function replaceBasket(session: PaperSession, ids: string[]): PaperSession {
+  const basket = [...new Set(ids.map((id) => id.slice(0, 80)).filter(Boolean))];
+  if (basket.length > BASKET_MAX) throw new Error(`一次最多选择 ${BASKET_MAX} 道题`);
+  if (basket.length === session.basket.length && basket.every((id, i) => id === session.basket[i])) return session;
+  return { ...session, basket, basketUpdatedAt: Math.max(Date.now(), session.basketUpdatedAt + 1) };
 }
 
 export function clearBasket(session: PaperSession): PaperSession {

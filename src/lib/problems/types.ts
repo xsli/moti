@@ -37,7 +37,7 @@ export const ERROR_REASON_LABEL: Record<ErrorReason, string> = {
   calc: "计算失误",
   method: "方法不当",
   careless: "粗心笔误",
-  unknown: "待复盘",
+  unknown: "待复习",
 };
 
 export type Mastery = "new" | "reviewing" | "mastered";

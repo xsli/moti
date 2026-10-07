@@ -466,19 +466,16 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
     }
     if (incoming.paper) {
       try {
-        const { parseSession } = await import("@/lib/paper/session");
+        const { BASKET_MAX, parseSession } = await import("@/lib/paper/session");
         const { usePaperStore } = await import("@/lib/paper/store");
         const paper = parseSession(incoming.paper);
         const store = usePaperStore.getState();
         store.hydrate(store.userId);
         const current = usePaperStore.getState();
         const templates = [...paper.templates, ...current.templates.filter((t) => !paper.templates.some((p) => p.id === t.id))].slice(0, 20);
-        const basket = [...new Set([...paper.basket, ...current.basket])].slice(0, 80);
-        usePaperStore.setState({ basket, templates });
-        window.localStorage.setItem(
-          `moti-paper-v1:${store.userId || "guest"}`,
-          JSON.stringify({ basket, templates }),
-        );
+        const basket = [...new Set([...paper.basket, ...current.basket])].slice(0, BASKET_MAX);
+        usePaperStore.setState({ templates });
+        current.replaceBasket(basket);
       } catch {
         /* paper optional */
       }

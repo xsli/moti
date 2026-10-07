@@ -38,7 +38,7 @@ export const putPaperSessionFn = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
       .object({
-        basket: z.array(z.string().max(80)).max(80),
+        basket: z.array(z.string().max(80)).max(1000),
         basketUpdatedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional().default(0),
         templates: z.array(z.unknown()).max(20),
         deletedTemplates: z.record(z.string().max(80), z.number()).optional().default({}),

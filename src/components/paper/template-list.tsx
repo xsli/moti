@@ -6,16 +6,16 @@ import { idsFromRows } from "@/lib/paper/session";
 import { usePaperStore } from "@/lib/paper/store";
 import { useProblemStore } from "@/lib/problems/store";
 
-export function TemplateList() {
+export function TemplateList({ showHeading = true, showEmpty = false }: { showHeading?: boolean; showEmpty?: boolean }) {
   const templates = usePaperStore((s) => s.templates);
   const deleteTemplate = usePaperStore((s) => s.deleteTemplate);
   const problems = useProblemStore((s) => s.problems);
   const available = new Set(problems.map((p) => p.id));
-  if (!templates.length) return null;
+  if (!templates.length) return showEmpty ? <p className="py-6 text-center text-sm text-muted-foreground">还没有保存的模板</p> : null;
 
   return (
     <section className="flex flex-col gap-2">
-      <p className="text-sm font-medium">已存模板</p>
+      {showHeading ? <p className="text-sm font-medium">已存模板</p> : null}
       <ul className="flex flex-col gap-2">
         {templates.map((tpl) => {
           const ids = idsFromRows(tpl.rows).filter((id) => available.has(id));
@@ -28,7 +28,7 @@ export function TemplateList() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{tpl.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {tpl.title} · {ids.length} 道{tpl.withAnswers ? " · 解析版" : ""}
+                  {tpl.title} · {ids.length} 道{tpl.withAnswers ? " · 含答案与解析" : ""}
                 </p>
               </div>
               <Button asChild size="sm" variant="outline" disabled={!ids.length}>
@@ -42,6 +42,7 @@ export function TemplateList() {
                 size="icon"
                 variant="ghost"
                 aria-label="删除模板"
+                title="删除模板"
               >
                 <Trash2 className="size-4" />
               </Button>

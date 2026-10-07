@@ -32,7 +32,7 @@ export function bookContinuationStart(end: number, ink: InkRange[]): number {
   return remaining.length ? Math.max(end, Math.min(...remaining.map((r) => r.top)) - 2) : end;
 }
 
-function inkRanges(node: HTMLElement): InkRange[] {
+export function inkRanges(node: HTMLElement): InkRange[] {
   const top = node.getBoundingClientRect().top;
   const ink: InkRange[] = [];
   const add = (rect: DOMRect) => {

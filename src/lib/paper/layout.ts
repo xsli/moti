@@ -132,3 +132,25 @@ export function reorderRows(rows: PaperRow[], from: number, to: number): PaperRo
   copy.splice(dest, 0, item);
   return copy;
 }
+
+// Infer sections only when the user has not supplied an explicit heading.
+export function handoutItems(items: ExamItem[]): ExamItem[] {
+  let explicit = false;
+  let previous: HeadingRole | undefined;
+  let example = 0;
+  let practice = 0;
+  return items.flatMap((item): ExamItem[] => {
+    if (item.kind === "heading") {
+      explicit = true;
+      previous = item.role;
+      return [item];
+    }
+    const role = explicit ? item.role : item.problem.tags.includes("例题") ? "example" : item.role;
+    const heading: ExamItem[] = !explicit && role !== previous
+      ? [{ kind: "heading", title: role === "example" ? "例题" : role === "points" ? "要点" : "习题", role }]
+      : [];
+    previous = role;
+    const label = role === "example" ? String(++example) : role === "points" ? "" : String(++practice);
+    return [...heading, { ...item, role, label }];
+  });
+}

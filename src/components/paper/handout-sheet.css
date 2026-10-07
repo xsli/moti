@@ -1,0 +1,66 @@
+@font-face {
+  font-family: HandoutSourceHan;
+  src: url('/fonts/source-han-serif/SourceHanSerifCN-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: HandoutSourceHan;
+  src: url('/fonts/source-han-serif/SourceHanSerifCN-SemiBold.otf') format('opentype');
+  font-weight: 600 900;
+  font-display: block;
+}
+.handout-sheet { --hn-green:#008675; --hn-orange:#e98820; --hn-practice:#05aeee; }
+.handout-sheet .exam-pack { display:flex; flex-direction:column; align-items:center; gap:18px; }
+.handout-sheet .exam-page, .handout-sheet .exam-measure {
+  box-sizing:border-box; width:210mm; padding:10mm 20mm 25mm; background:white; color:black;
+  font-family:HandoutSourceHan,serif; font-size:11pt; line-height:1.85; letter-spacing:0;
+}
+.handout-sheet .exam-page *, .handout-sheet .exam-measure * { box-sizing:border-box; letter-spacing:0; }
+.handout-sheet .exam-page { position:relative; height:297mm; overflow:hidden; box-shadow:var(--shadow-border); }
+.handout-sheet .exam-measure { position:absolute; left:-12000px; top:0; visibility:hidden; pointer-events:none; }
+.handout-sheet .hn-content { display:flow-root; }
+.handout-sheet .hn-head { position:relative; height:10mm; margin:0 0 4mm; padding-bottom:1.5mm; display:grid; grid-template-columns:80mm 90mm; align-items:end; }
+.handout-sheet .hn-header-rule { position:absolute; left:0; right:0; bottom:0; border-top:.3mm solid var(--hn-green); }
+.handout-sheet .hn-running-title { grid-column:1; grid-row:1; max-width:75mm; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--hn-green); font-size:10pt; line-height:1.4; }
+.handout-sheet .hn-meta { grid-column:2; grid-row:1; justify-self:end; width:86mm; white-space:nowrap; text-align:right; font-size:9pt; line-height:1.4; color:var(--hn-green); }
+.handout-sheet .hn-meta-by { margin-left:1mm; }
+.handout-sheet .hn-title { margin:0 0 6mm; line-height:1.4; text-align:center; }
+.handout-sheet .hn-title h1 { display:flex; align-items:center; justify-content:center; gap:8mm; margin:0; font:600 21pt/1.4 HandoutSourceHan,serif; }
+.handout-sheet .hn-lecture-badge { position:relative; flex:none; display:flex; align-items:center; justify-content:center; min-width:34mm; height:17mm; padding:0 5mm; color:var(--hn-green); font:400 16pt/1 HandoutSourceHan,serif; white-space:nowrap; }
+.handout-sheet .hn-lecture-badge svg { position:absolute; inset:0; width:100%; height:100%; }
+.handout-sheet .hn-lecture-badge > span { position:relative; }
+.handout-sheet .hn-lecture-name { min-width:0; overflow-wrap:anywhere; }
+.handout-sheet .hn-sec { margin:3mm 0 6mm; }
+.handout-sheet .hn-section-rule { display:block; width:100%; border-top:.3mm solid var(--hn-green); }
+.handout-sheet .hn-sec-title { margin:3mm 0 0; color:var(--hn-green); font:600 15pt/1.25 HandoutSourceHan,serif; }
+.handout-sheet .exam-q { margin:6mm 0 2mm; }
+.handout-sheet .exam-q:first-child { margin-top:0; }
+.handout-sheet .hn-question-heading { margin:0 0 2mm; line-height:1.5; }
+.handout-sheet .hn-example, .handout-sheet .hn-exercise { position:relative; padding-left:8mm; }
+.handout-sheet .hn-example .hn-question-heading, .handout-sheet .hn-exercise .hn-question-heading { position:absolute; left:0; top:.6mm; margin:0; white-space:nowrap; }
+.handout-sheet .hn-example-no, .handout-sheet .hn-exercise-no { display:inline-flex; align-items:center; justify-content:center; height:5.8mm; vertical-align:top; color:white; font:400 10pt/1 KaTeX_Main,"Times New Roman",serif; font-variant-numeric:lining-nums tabular-nums; }
+.handout-sheet .hn-example-no { width:5.8mm; border-radius:1mm; background:var(--hn-orange); position:relative; }
+.handout-sheet .hn-exercise-no { width:5.8mm; border-radius:50%; background:var(--hn-practice); position:relative; }
+.handout-sheet .hn-example-no::after, .handout-sheet .hn-exercise-no::after { content:''; position:absolute; inset:.55mm; border:.16mm solid white; pointer-events:none; }
+.handout-sheet .hn-example-no::after { border-radius:.5mm; }
+.handout-sheet .hn-exercise-no::after { border-radius:50%; }
+.handout-sheet .hn-text { font-size:inherit; line-height:inherit; overflow-wrap:break-word; }
+.handout-sheet .hn-block { margin-bottom:2mm; display:flow-root; }
+.handout-sheet .hn-block:last-child { margin-bottom:0; }
+.handout-sheet .hn-text .block { overflow:visible; margin:1.8mm 0 2.5mm; }
+.handout-sheet .katex { font-size:1.04em; color:black; }
+.handout-sheet .katex-display { margin:0; }
+.handout-sheet .hn-frame { --hn-frame-color:var(--hn-orange); min-width:0; margin:4mm 0; border:.3mm solid var(--hn-frame-color); border-radius:1.5mm; padding:2mm 4.5mm 3.5mm; font-size:10.5pt; line-height:1.8; background:transparent; }
+.handout-sheet .hn-frame-practice { --hn-frame-color:var(--hn-practice); }
+.handout-sheet .hn-frame legend { padding:0 2mm; font-size:11pt; font-weight:600; color:var(--hn-frame-color); }
+.handout-sheet .exam-figure { margin:3mm 0; }
+.handout-sheet .exam-figure img, .handout-sheet .exam-figure svg { display:block; width:auto; height:auto; max-width:100%; max-height:90mm; object-fit:contain; }
+.handout-sheet .hn-writing { min-height:0; }
+.handout-sheet .exam-page-no { position:absolute; left:20mm; right:20mm; bottom:11mm; display:flex; gap:4mm; align-items:center; font:11pt Georgia,serif; color:var(--hn-green); }
+.handout-sheet .hn-footer-line { flex:1; height:.2mm; background:var(--hn-green); }
+@media print {
+  .handout-sheet .hn-head { display:grid!important; }
+  .handout-sheet .exam-measure { display:none; }
+  .handout-sheet .exam-page { box-shadow:none; break-after:page; print-color-adjust:exact; }
+}

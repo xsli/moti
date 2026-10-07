@@ -28,7 +28,7 @@ export function BookExportDialog({
   const [title, setTitle] = useState(folder || "未分大组");
   const [answers, setAnswers] = useState(false);
   const [blankLines, setBlankLines] = useState<BlankLines>(2);
-  const [dpi, setDpi] = useState(200);
+  const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -118,7 +118,7 @@ export function BookExportDialog({
         }}
       >
         <Download className="size-4" />
-        整本导出
+        导出 PDF
       </Button>
       <Dialog
         open={open}
@@ -133,10 +133,8 @@ export function BookExportDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>整本导出 PDF</DialogTitle>
-            <DialogDescription>
-              {folder || "未分大组"} · {chapters.length} 章 · {count} 道题
-            </DialogDescription>
+            <DialogTitle>章节导出 PDF</DialogTitle>
+            <DialogDescription className="sr-only">选择章节与导出设置</DialogDescription>
           </DialogHeader>
           <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4">
             <label className="flex flex-col gap-2 text-sm">
@@ -151,7 +149,7 @@ export function BookExportDialog({
                 }}
               />
             </label>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm">
                 题后留白
                 <select
@@ -165,12 +163,12 @@ export function BookExportDialog({
                     setMessage("");
                   }}
                 >
-                  <option value={2}>紧凑（2 行）</option>
-                  <option value={5}>标准（5 行）</option>
-                  <option value={8}>宽松（8 行）</option>
+                  <option value={2}>小</option>
+                  <option value={5}>中</option>
+                  <option value={8}>大</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-2 text-sm">
+              <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">高级选项</summary><label className="mt-2 flex flex-col gap-2 text-sm">
                 清晰度
                 <select
                   aria-label="清晰度"
@@ -185,7 +183,7 @@ export function BookExportDialog({
                   <option value={200}>标准 · 200 DPI</option>
                   <option value={300}>高清 · 300 DPI</option>
                 </select>
-              </label>
+              </label></details>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input

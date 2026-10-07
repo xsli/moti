@@ -1,5 +1,6 @@
 import katexCss from "katex/dist/katex.min.css?inline";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { HandoutSheet } from "./handout-sheet";
 import { chineseOrdinal, type ExamItem, type HeadingRole, type SheetKind } from "@/lib/paper/layout";
 import {
   BLANK_LINE_HEIGHT_MM,
@@ -11,6 +12,8 @@ import { MathText, splitMathPieces } from "@/lib/problems/math-text";
 import { splitStemSections } from "@/lib/problems/subproblems";
 import type { Problem } from "@/lib/problems/types";
 
+const SheetMathText = memo(MathText);
+
 const EXAM_CSS = `
 .exam-pack { display: flex; flex-direction: column; gap: 18px; align-items: center; }
 .exam-page, .exam-measure {
@@ -18,7 +21,7 @@ const EXAM_CSS = `
   box-sizing: border-box;
   padding: 25.4mm 20.3mm 25.4mm 33mm;
   background: #fff;
-  color: #1a1814;
+  color: #000;
   font-family: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
   font-size: 10.5pt;
   line-height: 1.7;
@@ -60,7 +63,7 @@ const EXAM_CSS = `
   writing-mode: vertical-rl;
   font-size: 8pt;
   letter-spacing: 0.55em;
-  color: #1a1814;
+  color: #000;
 }
 .exam-head { text-align: center; }
 .exam-brand {
@@ -107,8 +110,8 @@ const EXAM_CSS = `
   position: absolute;
   margin-left: 8pt;
   padding: 1pt 6pt 0;
-  border: 0.65pt solid #0d9f78;
-  color: #0d9f78;
+  border: 0.65pt solid #000;
+  color: #000;
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", sans-serif;
   font-size: 9pt;
   font-weight: 500;
@@ -156,7 +159,7 @@ const EXAM_CSS = `
   justify-content: space-between;
   align-items: baseline;
   font-size: 9pt;
-  color: #5c574e;
+  color: #000;
   margin: 0 0 6pt;
 }
 .exam-rule {
@@ -195,7 +198,7 @@ const EXAM_CSS = `
 .exam-box-sizer { visibility: hidden; }
 .exam-analysis {
   margin: 6pt 0 1.15em 2em;
-  color: #1a7d68;
+  color: #000;
   font-size: 10.5pt;
   line-height: 1.75;
 }
@@ -246,7 +249,7 @@ const EXAM_CSS = `
   bottom: 12mm;
   text-align: center;
   font-size: 9pt;
-  color: #1a1814;
+  color: #000;
 }
 .exam-measure {
   position: absolute;
@@ -270,7 +273,7 @@ const EXAM_CSS = `
   display: flex;
   justify-content: space-between;
   text-align: left;
-  color: #5c574e;
+  color: #000;
 }
 .hn-head {
   display: flex;
@@ -305,7 +308,7 @@ const EXAM_CSS = `
   font-weight: 700;
   letter-spacing: 0.16em;
 }
-.hn-meta { max-width: 62%; white-space: nowrap; font-size: 9pt; color: #1a1814; text-align: right; line-height: 1.45; }
+.hn-meta { max-width: 62%; white-space: nowrap; font-size: 9pt; color: #000; text-align: right; line-height: 1.45; }
 .hn-meta-by { display: inline; margin-left: 0.45em; font-size: 8pt; }
 .hn-sec {
   margin: 12pt 0 8pt;
@@ -635,7 +638,7 @@ function QuestionBlock({
     const text = problem.notes.trim() || problem.title;
     return (
       <div className="hn-point">
-        <MathText text={text} inline />
+        <SheetMathText text={text} inline />
       </div>
     );
   }
@@ -655,7 +658,7 @@ function QuestionBlock({
         <div key={`${section.subproblem}-${sectionIndex}`}>
           <p className="exam-stem">
             {sectionIndex === 0 ? mark : null}
-            <MathText text={section.text} inline />
+            <SheetMathText text={section.text} inline />
           </p>
           {section.subproblem > 0
             ? figures
@@ -709,13 +712,13 @@ function IdeaBox({ problem }: { problem: Problem }) {
       {problem.analysis.trim() ? (
         <div>
           <b>思路</b>
-          <MathText text={problem.analysis} inline />
+          <SheetMathText text={problem.analysis} inline />
         </div>
       ) : null}
       {problem.correctAnswer.trim() ? (
         <div style={{ marginTop: problem.analysis.trim() ? "3pt" : 0 }}>
           <b>答案</b>
-          <MathText text={problem.correctAnswer} inline />
+          <SheetMathText text={problem.correctAnswer} inline />
         </div>
       ) : null}
     </div>
@@ -738,7 +741,7 @@ function HandoutAnswerPart({
       className={`hn-idea hn-idea-part${first ? " hn-idea-first" : ""}${answerStart ? " hn-idea-answer" : ""}`}
     >
       {label ? <b>{label}</b> : null}
-      <MathText text={text} inline />
+      <SheetMathText text={text} inline />
     </div>
   );
 }
@@ -773,10 +776,10 @@ function AnalysisBlock({ problem }: { problem: Problem }) {
   return (
     <div className="exam-analysis">
       <span className="exam-analysis-label">解析</span>
-      <MathText text={problem.correctAnswer || "（略）"} inline />
+      <SheetMathText text={problem.correctAnswer || "（略）"} inline />
       {problem.analysis ? (
         <div style={{ marginTop: "4pt" }}>
-          <MathText text={problem.analysis} />
+          <SheetMathText text={problem.analysis} />
         </div>
       ) : null}
     </div>
@@ -890,7 +893,7 @@ function cnRole(role: HeadingRole) {
   return `hn-sec${role === "example" ? " hn-sec-example" : role === "practice" ? " hn-sec-practice" : ""}`;
 }
 
-function BlockView({
+const BlockView = memo(function BlockView({
   block,
   blank,
   blankLines,
@@ -930,9 +933,9 @@ function BlockView({
       withAnswers={withAnswers}
     />
   );
-}
+});
 
-export function ExamSheet({
+const LegacyExamSheet = memo(function LegacyExamSheet({
   title,
   dateLabel,
   items,
@@ -954,10 +957,6 @@ export function ExamSheet({
   localFonts?: boolean;
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
-  const [pages, setPages] = useState<Block[][]>([]);
-  useLayoutEffect(() => {
-    if (pages.length) onReady?.();
-  }, [pages, onReady]);
   const headingCount = items.filter((item) => item.kind === "heading").length;
   const quoteDeck = useMemo(() => createPaperQuoteDeck(), [title, dateLabel, sheetKind]);
   const handout = sheetKind === "handout";
@@ -1007,6 +1006,17 @@ export function ExamSheet({
     }
     return next;
   }, [items, withAnswers, blankLines, handout]);
+
+  const layoutInput = useMemo(
+    () => ({ blocks, title, dateLabel, headingCount, withAnswers, blankLines, blankAuto, handout, localFonts }),
+    [blocks, title, dateLabel, headingCount, withAnswers, blankLines, blankAuto, handout, localFonts],
+  );
+  const [layout, setLayout] = useState<{ input: typeof layoutInput; pages: Block[][] } | null>(null);
+  const ready = layout?.input === layoutInput;
+  const pages = layout?.pages ?? [];
+  useLayoutEffect(() => {
+    if (ready) onReady?.();
+  }, [ready, onReady]);
 
   useLayoutEffect(() => {
     const root = measureRef.current;
@@ -1097,14 +1107,14 @@ export function ExamSheet({
           }
         }
       }
-      setPages(packed.length ? packed : [[]]);
+      setLayout({ input: layoutInput, pages: packed.length ? packed : [[]] });
     }
 
     void paginate();
     return () => {
       cancelled = true;
     };
-  }, [blocks, title, dateLabel, headingCount, withAnswers, blankLines, blankAuto, handout]);
+  }, [layoutInput, blocks, withAnswers, blankLines, blankAuto, handout]);
 
   const head = handout ? (
     <HandoutHead quote={quoteDeck[0] ?? MATH_QUIPS[0]!} />
@@ -1113,7 +1123,7 @@ export function ExamSheet({
   );
 
   return (
-    <div className="exam-sheet" data-kind={sheetKind} data-local-fonts={localFonts || undefined}>
+    <div className="exam-sheet" data-kind={sheetKind} data-local-fonts={localFonts || undefined} aria-busy={!ready}>
       {!localFonts ? <link
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@500;700&display=swap"
@@ -1148,7 +1158,7 @@ export function ExamSheet({
         ))}
       </div>
 
-      <div className="exam-pack">
+      <div className="exam-pack" aria-hidden={!ready} style={!ready ? { visibility: "hidden" } : undefined}>
         {pages.map((pageBlocks, pageIndex) => (
           <article key={pageIndex} className="exam-page">
             {handout ? null : (
@@ -1198,4 +1208,13 @@ export function ExamSheet({
       </div>
     </div>
   );
-}
+});
+
+export const ExamSheet = memo(function ExamSheet(props: ComponentProps<typeof LegacyExamSheet> & {
+  groupName?: string;
+  onError?: (message: string) => void;
+}) {
+  const quotes = useMemo(() => createPaperQuoteDeck(), [props.title, props.dateLabel]);
+  if (props.sheetKind === "handout") return <HandoutSheet {...props} quotes={quotes} />;
+  return <LegacyExamSheet {...props} />;
+});

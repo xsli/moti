@@ -10,6 +10,7 @@ import {
   mergeSession,
   parseSession,
   removeFromBasket as dropId,
+  replaceBasket as replaceIds,
   renameTemplate as renameTpl,
   saveTemplate as putTemplate,
   type PaperSession,
@@ -116,6 +117,8 @@ interface PaperState extends PaperSession {
   addToBasket: (ids: string[]) => number;
   removeFromBasket: (id: string) => void;
   clearBasket: () => void;
+  replaceBasket: (ids: string[]) => void;
+  removeBasketItems: (ids: string[]) => void;
   saveTemplate: (input: {
     name: string;
     title: string;
@@ -177,6 +180,18 @@ export const usePaperStore = create<PaperState>()((set, get) => ({
   },
   clearBasket: () => {
     const next = emptyBasket(mergeSession(get(), readAll()));
+    applySession(get().userId, next, set);
+    pushRemote(get().userId, next);
+  },
+  replaceBasket: (ids) => {
+    const next = replaceIds(mergeSession(get(), readAll()), ids);
+    applySession(get().userId, next, set);
+    pushRemote(get().userId, next);
+  },
+  removeBasketItems: (ids) => {
+    const current = mergeSession(get(), readAll());
+    const removed = new Set(ids);
+    const next = replaceIds(current, current.basket.filter((id) => !removed.has(id)));
     applySession(get().userId, next, set);
     pushRemote(get().userId, next);
   },

@@ -1,5 +1,5 @@
 import katex from "katex";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export type MathPiece =
@@ -103,26 +103,39 @@ export function MathText({
   className,
   inline = false,
   compact = false,
+  tight = false,
+  scrollHints = false,
 }: {
   text: string;
   className?: string;
   inline?: boolean;
   compact?: boolean;
+  tight?: boolean;
+  scrollHints?: boolean;
 }) {
   const pieces = useMemo(() => splitMath(text.replace(/\r\n/g, "\n")), [text]);
-  const Tag = inline ? "span" : "div";
+  const Tag = scrollHints ? MathScroll : inline ? "span" : "div";
 
   return (
     <Tag className={cn(!inline && "text-pretty leading-relaxed", compact && "math-compact", className)}>
       {pieces.map((piece, index) => {
         if (piece.type === "text") {
-          return piece.value.split("\n").map((line, lineIndex, arr) => (
+          const previous = pieces[index - 1];
+          const next = pieces[index + 1];
+          let value = piece.value;
+          if (tight) {
+            value = value.replace(/\n{3,}/g, "\n\n");
+            if (previous?.type === "math" && previous.display) value = value.replace(/^\n+/, "");
+            if (next?.type === "math" && next.display) value = value.replace(/\n+$/, "");
+          }
+          return value.split("\n").map((line, lineIndex, arr) => (
             <span key={`${index}-${lineIndex}`}>
               {line}
               {lineIndex < arr.length - 1 ? <br /> : null}
             </span>
           ));
         }
+        if (piece.display && scrollHints) return <MathScroll key={index} className="math-equation my-2"><span dangerouslySetInnerHTML={{ __html: renderMath(piece.value, true) }} /></MathScroll>;
         return (
           <span
             key={index}
@@ -137,4 +150,27 @@ export function MathText({
       })}
     </Tag>
   );
+}
+
+function MathScroll({ children, className }: { children: ReactNode; className?: string }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false, overflow: false });
+  function update() {
+    const node = root.current;
+    if (!node) return;
+    const next = { left: node.scrollLeft > 1, right: node.scrollLeft + node.clientWidth < node.scrollWidth - 1, overflow: node.scrollWidth > node.clientWidth + 1 };
+    setEdges((previous) => previous.left === next.left && previous.right === next.right && previous.overflow === next.overflow ? previous : next);
+  }
+  useEffect(() => {
+    if (!root.current) return;
+    let live = true;
+    const observer = new ResizeObserver(update);
+    observer.observe(root.current);
+    for (const node of root.current.querySelectorAll(".base")) observer.observe(node);
+    void document.fonts.ready.then(() => { if (live) update(); });
+    update();
+    return () => { live = false; observer.disconnect(); };
+  }, [children]);
+  return <span ref={root} onScroll={update} tabIndex={edges.overflow ? 0 : undefined} aria-label={edges.overflow ? "公式内容，可横向滚动" : undefined}
+    data-scroll-left={edges.left} data-scroll-right={edges.right} className={cn("block min-w-0 overflow-x-auto overflow-y-hidden", edges.overflow && "math-scrollable", className)}>{children}</span>;
 }

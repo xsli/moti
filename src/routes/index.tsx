@@ -1,17 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { type PointerEvent, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
-import { DateMenu, DifficultyMenu, FilterMenu } from "@/components/notebook/filter-menu";
+import { DateMenu, DifficultyMenu, FilterMenu, dateFilterLabel } from "@/components/notebook/filter-menu";
 import { SortableProblems } from "@/components/notebook/sortable-problems";
 import { ProblemNavigationScope } from "@/components/notebook/problem-navigation";
 import { TagEditor, type TagEditorHandle } from "@/components/notebook/tag-editor";
 import { TagFilter } from "@/components/notebook/tag-filter";
+import { ExtraFilters } from "@/components/notebook/extra-filters";
 import { BasketBar } from "@/components/paper/basket-bar";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -64,7 +66,8 @@ const BROWSE_PAGE_SIZE = 24;
 
 function readLayout(): BrowseLayout {
   if (typeof window === "undefined") return "card";
-  return window.localStorage.getItem(LAYOUT_KEY) === "row" ? "row" : "card";
+  const saved = window.localStorage.getItem(LAYOUT_KEY);
+  return saved === "row" || (!saved && window.matchMedia("(max-width: 639px)").matches) ? "row" : "card";
 }
 
 function Home() {
@@ -99,6 +102,7 @@ function Home() {
   const [pagination, setPagination] = useState({ scope: "", page: 1 });
   const listTopRef = useRef<HTMLDivElement>(null);
   const [selecting, setSelecting] = useState(false);
+  const [reordering, setReordering] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [tagOpen, setTagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -366,7 +370,7 @@ function Home() {
       a.click();
       a.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-      toast.success("已导出整本");
+      toast.success("已备份全部题库数据");
     } catch {
       toast.error("导出失败，请再试一次。");
     } finally {
@@ -390,10 +394,10 @@ function Home() {
 
   return (
     <div className="flex flex-col gap-6">
-      {f === undefined ? (
+      {!g && f === undefined ? (
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-display text-2xl font-semibold">概览</h1>
+          <h1 className="font-display text-2xl font-semibold">题库</h1>
           <div className="flex items-center">
             <input
               ref={importRef}
@@ -406,26 +410,13 @@ function Home() {
                 void onImportFile(file);
               }}
             />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs text-muted-foreground"
-              onClick={() => importRef.current?.click()}
-              disabled={packing}
-            >
-              <Upload className="size-3.5" />
-              导入
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs text-muted-foreground"
-              onClick={() => void downloadBackup()}
-              disabled={packing}
-            >
-              <Download className="size-3.5" />
-              {packing ? "打包中" : "导出"}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={packing || status !== "ready"}><Database />{packing ? "备份中…" : "数据管理"}</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => void downloadBackup()}><Download />备份全部数据</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => importRef.current?.click()}><Upload />恢复备份</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="flex flex-wrap items-baseline gap-4">
@@ -444,8 +435,8 @@ function Home() {
           folder={f}
           problems={problems}
           collections={collections}
-          onCreate={async () => {
-            const id = await addCollection({ name: defaultCollectionName(), kind: "exam", groupName: f ?? "" });
+          onCreate={async (name, groupName) => {
+            const id = await addCollection({ name, kind: "unit", groupName });
             navigate({ to: "/", search: { g: id } });
           }}
           onDelete={deleteCollection}
@@ -503,6 +494,7 @@ function Home() {
           ) : null}
         </div>
         {currentCol ? (
+          <>
           <CollectionIdentity
             key={currentCol.id}
             name={currentCol.name}
@@ -522,9 +514,11 @@ function Home() {
               void updateCollection(currentCol.id, patch);
             }}
           />
+          <p className="text-xs text-muted-foreground">{overviewProblems.length} 道题 · 待复习 {overviewDueCount} · 已掌握 {overviewMasteredCount}</p>
+          </>
         ) : null}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative basis-full sm:min-w-0 sm:flex-1 sm:basis-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
@@ -536,14 +530,17 @@ function Home() {
           </div>
           <Button
             variant={selecting ? "secondary" : "outline"}
-            onClick={() => (selecting ? exitSelect() : setSelecting(true))}
+            onClick={() => { setReordering(false); selecting ? exitSelect() : setSelecting(true); }}
           >
-            {selecting ? "取消" : "选择"}
+            {selecting ? "退出多选" : "多选"}
           </Button>
-          <div className="flex rounded-lg bg-secondary p-0.5">
+          {currentCol && !selecting ? <Button variant={reordering ? "secondary" : "ghost"} size="sm" aria-label={reordering ? "完成排序" : "调整题目顺序"} aria-pressed={reordering} onClick={() => setReordering(!reordering)}>{reordering ? "完成排序" : "调整顺序"}</Button> : null}
+          <div className="ml-auto flex rounded-lg bg-secondary p-0.5 sm:ml-0">
             <button
               type="button"
               aria-label="卡片"
+              aria-pressed={layout === "card"}
+              title="卡片视图"
               className={cn("grid size-9 place-items-center rounded-md", layout === "card" && "bg-surface text-fg")}
               onClick={() => {
                 setLayout("card");
@@ -555,6 +552,8 @@ function Home() {
             <button
               type="button"
               aria-label="列表"
+              aria-pressed={layout === "row"}
+              title="列表视图"
               className={cn("grid size-9 place-items-center rounded-md", layout === "row" && "bg-surface text-fg")}
               onClick={() => {
                 setLayout("row");
@@ -598,7 +597,7 @@ function Home() {
                 disabled={!selectedCount}
                 onClick={() => {
                   const n = addToBasket(idsInSourceOrder(problems, selected));
-                  toast.success(n ? `已放入组卷篮 ${n} 道` : "这些题已在篮子里");
+                  toast.success(n ? `已加入组卷篮 ${n} 道` : "题目已选中，或已达选题上限");
                 }}
               >
                 加入组卷篮
@@ -683,14 +682,9 @@ function Home() {
           </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <FilterMenu
-            idleLabel="科目"
-            emptyValue={"all" as Filter}
-            value={filter}
-            options={chips}
-            onChange={setFilter}
-          />
-          <TagFilter tags={allTags} value={tagFilter} onChange={setTagFilter} />
+          <FilterMenu idleLabel="例题 / 习题" emptyValue="all" value={tagFilter.find((tag) => tag === "例题" || tag === "习题") || "all"}
+            options={[{ id: "all", label: "全部题目" }, { id: "例题", label: "例题" }, { id: "习题", label: "习题" }]}
+            onChange={(kind) => setTagFilter((tags) => [...tags.filter((tag) => tag !== "例题" && tag !== "习题"), ...(kind === "all" ? [] : [kind])])} />
           <FilterMenu
             idleLabel="掌握状态"
             emptyValue="all"
@@ -698,6 +692,16 @@ function Home() {
             options={masteryOptions}
             onChange={setMasteryFilter}
           />
+          <ExtraFilters activeCount={Number(filter !== "all") + Number(dateFilter !== "all") + difficultyFilter.length + tagFilter.filter((tag) => tag !== "例题" && tag !== "习题").length}
+            activeFilters={[
+              ...(filter !== "all" ? [{ key: "subject", label: chips.find((chip) => chip.id === filter)?.label ?? filter, onRemove: () => setFilter("all") }] : []),
+              ...(dateFilter !== "all" ? [{ key: "date", label: dateFilterLabel(dateFilter, dateDay), onRemove: () => { setDateFilter("all"); setDateDay(""); } }] : []),
+              ...difficultyFilter.map((value) => ({ key: `difficulty:${value}`, label: `难度：${value}星`, onRemove: () => setDifficultyFilter((values) => values.filter((item) => item !== value)) })),
+              ...tagFilter.filter((tag) => tag !== "例题" && tag !== "习题").map((tag) => ({ key: `tag:${tag}`, label: tag, onRemove: () => setTagFilter((tags) => tags.filter((item) => item !== tag)) })),
+            ]}
+            onClear={() => { setFilter("all"); setDateFilter("all"); setDateDay(""); setDifficultyFilter([]); setTagFilter((tags) => tags.filter((tag) => tag === "例题" || tag === "习题")); }}>
+          <FilterMenu idleLabel="科目" emptyValue={"all" as Filter} value={filter} options={chips} onChange={setFilter} />
+          <TagFilter tags={allTags.filter((tag) => tag !== "例题" && tag !== "习题")} value={tagFilter.filter((tag) => tag !== "例题" && tag !== "习题")} onChange={(tags) => setTagFilter((previous) => [...previous.filter((tag) => tag === "例题" || tag === "习题"), ...tags])} />
           <DifficultyMenu value={difficultyFilter} onChange={setDifficultyFilter} />
           <DateMenu
             value={dateFilter}
@@ -707,6 +711,7 @@ function Home() {
               setDateDay(day);
             }}
           />
+          </ExtraFilters>
         </div>
       </div>
 
@@ -727,7 +732,7 @@ function Home() {
 
       {status === "error" ? (
         <div className="rounded-xl bg-surface px-6 py-12 text-center shadow-[var(--shadow-border)]">
-          <p className="font-display text-xl font-semibold">本子还没同步上来</p>
+          <p className="font-display text-xl font-semibold">题库尚未加载</p>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <Button className="mt-6" onClick={() => userId && void hydrate(userId)}>
             再试一次
@@ -744,7 +749,7 @@ function Home() {
           <p className="font-display text-xl font-semibold">还没有这类题目</p>
           <Button asChild className="mt-6">
             <Link to="/capture" search={currentCol ? { g: currentCol.id } : {}}>
-              拍题
+              录题
             </Link>
           </Button>
         </div>
@@ -760,7 +765,7 @@ function Home() {
           onToggle={toggle}
           onMasteryChange={(id, mastery) => void updateProblem(id, { mastery })}
           onReorder={
-            currentCol
+            currentCol && reordering
               ? (visibleIds) => {
                   const full = idsInSourceOrder(
                     problems,
@@ -1002,12 +1007,17 @@ function GroupHome({
   folder?: string;
   problems: Problem[];
   collections: Collection[];
-  onCreate: () => void;
+  onCreate: (name: string, groupName: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onReorder: (ids: string[]) => void;
   onRenameFolder: (from: string, to: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [managing, setManaging] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [creatingBusy, setCreatingBusy] = useState(false);
+  const [newFolder, setNewFolder] = useState(folder ?? "");
+  const [newName, setNewName] = useState("");
   const summaries = useMemo(() => folderSummaries(collections, problems), [collections, problems]);
   const q = query.trim().toLowerCase();
   const inFolder = folder !== undefined;
@@ -1030,6 +1040,7 @@ function GroupHome({
     ),
   })).filter((cluster) => cluster.items.length);
   const visibleFolders = summaries.filter((item) => (item.name || UNGROUPED_FOLDER).toLowerCase().includes(q));
+  const matchingGroups = !inFolder && q ? sortCollectionsByOrder(collections.filter((item) => `${item.groupName} ${item.name}`.toLowerCase().includes(q)), (item) => item.createdAt) : [];
 
   return (
     <div className="flex flex-col gap-5">
@@ -1052,14 +1063,15 @@ function GroupHome({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={inFolder ? "搜索本组小组…" : "搜索大组…"}
-            aria-label={inFolder ? "搜索本组小组" : "搜索大组"}
+            placeholder={inFolder ? "搜索本组小组…" : "搜索大组、小组…"}
+            aria-label={inFolder ? "搜索本组小组" : "搜索大组、小组"}
             className="pl-9"
           />
         </div>
-        <Button size="icon" variant="outline" title="新建小组" aria-label="新建小组" onClick={onCreate}>
-          <Plus className="size-4" />
+        <Button size="sm" variant="outline" onClick={() => { setNewName(""); setNewFolder(folder ?? ""); setCreating(true); }}>
+          <Plus className="size-4" />{inFolder ? "新建小组" : "新建大组"}
         </Button>
+        {inFolder ? <Button size="sm" variant={managing ? "secondary" : "ghost"} onClick={() => setManaging(!managing)} aria-pressed={managing}>{managing ? "完成管理" : "管理小组"}</Button> : null}
         {!inFolder ? (
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <Button asChild variant="ghost" size="sm">
@@ -1073,6 +1085,11 @@ function GroupHome({
           </div>
         ) : <span className="ml-auto text-sm text-muted-foreground">{q ? filtered.length : folderCollections.length} 个小组</span>}
       </div>
+      {matchingGroups.length ? <section aria-label="小组搜索结果" className="divide-y divide-border border-y border-border">
+        {matchingGroups.map((item) => <Link key={item.id} to="/" search={{ g: item.id }} className="flex items-center justify-between gap-3 py-3 hover:bg-secondary/30">
+          <span className="min-w-0"><span className="block text-xs text-muted-foreground">{item.groupName || UNGROUPED_FOLDER}</span><span className="break-words font-medium">{item.name}</span></span><ChevronRight className="size-4 shrink-0" />
+        </Link>)}
+      </section> : null}
       {!inFolder ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visibleFolders.map((item) => {
@@ -1082,7 +1099,7 @@ function GroupHome({
                 className="group flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-surface p-5 transition-colors hover:bg-secondary/40 focus-visible:outline-2 focus-visible:outline-primary">
                 <div className="flex items-start gap-3">
                   <FolderOpen className="mt-1 size-5 shrink-0 text-primary" />
-                  <h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{item.name || UNGROUPED_FOLDER}</h2>
+                  <h2 className="min-h-14 min-w-0 flex-1 break-words text-lg font-semibold leading-7">{item.name || UNGROUPED_FOLDER}</h2>
                   <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </div>
                 <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -1090,8 +1107,7 @@ function GroupHome({
                 </div>
                 <div>
                   <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-                    <span>待复习 {item.due} · 已掌握 {item.mastered}</span>
-                    <span className="tabular-nums">掌握率 {percent}%</span>
+                    <span className="tabular-nums">掌握 {percent}%</span>
                   </div>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
                     <div className="h-full rounded-full bg-mastered" style={{ width: `${percent}%` }} />
@@ -1103,19 +1119,32 @@ function GroupHome({
         </div>
       ) : clusters.map((cluster) => (
         <section key={cluster.kind} className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-muted-foreground">{COLLECTION_KIND_LABEL[cluster.kind]}</h3>
-          <CollectionList items={cluster.items} problems={problems} onDelete={onDelete} onReorder={q ? undefined : onReorder} />
+          {clusters.length > 1 ? <h3 className="text-sm font-medium text-muted-foreground">{COLLECTION_KIND_LABEL[cluster.kind]}</h3> : null}
+          <CollectionList items={cluster.items} problems={problems} managing={managing} onDelete={onDelete} onReorder={q || !managing ? undefined : onReorder} />
         </section>
       ))}
-      {(inFolder ? !filtered.length : !visibleFolders.length) ? (
+      {(inFolder ? !filtered.length : !visibleFolders.length && !matchingGroups.length) ? (
         <div className="py-12 text-center">
           <FolderOpen className="mx-auto size-8 text-muted-foreground" />
           <p className="mt-3 text-sm text-muted-foreground">
             {q ? "没有匹配的分组" : inFolder ? "这个大组还没有小组" : "还没有大组"}
           </p>
-          {!q ? <Button className="mt-4" variant="outline" onClick={onCreate}><Plus className="size-4" />新建小组</Button> : null}
+          {!q ? <Button className="mt-4" variant="outline" onClick={() => setCreating(true)}><Plus className="size-4" />{inFolder ? "新建小组" : "新建大组"}</Button> : null}
         </div>
       ) : null}
+      <Dialog open={creating} onOpenChange={(open) => { if (!creatingBusy) setCreating(open); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{inFolder ? "新建小组" : "新建大组"}</DialogTitle><DialogDescription>{inFolder ? folder : "创建大组及其第一个小组。"}</DialogDescription></DialogHeader>
+          {!inFolder ? <label className="space-y-2 text-sm">大组名称<Input value={newFolder} maxLength={40} onChange={(e) => setNewFolder(e.target.value)} placeholder="讲义或教材名称" /></label> : null}
+          <label className="space-y-2 text-sm">{inFolder ? "小组名称" : "首个小组名称"}<Input value={newName} maxLength={40} onChange={(e) => setNewName(e.target.value)} placeholder="章节名称" /></label>
+          <DialogFooter><Button variant="ghost" disabled={creatingBusy} onClick={() => setCreating(false)}>取消</Button><Button disabled={creatingBusy || !newName.trim() || (!inFolder && !newFolder.trim())} onClick={async () => {
+            setCreatingBusy(true);
+            try { await onCreate(newName.trim(), newFolder.trim()); setCreating(false); }
+            catch { toast.error("创建失败，请重试"); }
+            finally { setCreatingBusy(false); }
+          }}>{creatingBusy ? "创建中…" : "创建"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1125,11 +1154,13 @@ function CollectionList({
   problems,
   onDelete,
   onReorder,
+  managing,
 }: {
   items: Collection[];
   problems: Problem[];
   onDelete: (id: string) => void | Promise<void>;
   onReorder?: (ids: string[]) => void;
+  managing: boolean;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -1164,8 +1195,8 @@ function CollectionList({
 
   return (
     <div ref={listRef} className="border-y border-border">
-      <div aria-hidden className="hidden grid-cols-[2rem_minmax(0,1fr)_4rem_5rem_9rem_2rem] items-center gap-3 border-b border-border py-2 text-xs text-muted-foreground sm:grid">
-        <span /><span>小组</span><span className="text-right">题数</span><span className="text-right">待复习</span><span className="text-right">掌握比例</span><span />
+      <div aria-hidden className={cn("hidden items-center gap-3 border-b border-border py-2 text-xs text-muted-foreground sm:grid", managing ? "grid-cols-[2rem_minmax(0,1fr)_4rem_5rem_9rem_2rem]" : "grid-cols-[minmax(0,1fr)_4rem_5rem_9rem]")}>
+        {managing ? <span /> : null}<span>小组</span><span className="text-right">题数</span><span className="text-right">待复习</span><span className="text-right">掌握比例</span>{managing ? <span /> : null}
       </div>
       {items.map((item, index) => {
         const groupProblems = problems.filter((problem) => problem.collectionId === item.id);
@@ -1181,34 +1212,34 @@ function CollectionList({
               draggingId && overIndex === index && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-primary",
               draggingId && overIndex === items.length && index === items.length - 1 && "after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary",
             )}>
-            <button type="button" disabled={!sortable} aria-label={`拖动${item.name}排序`} title="拖动排序"
+            {managing ? <button type="button" disabled={!sortable} aria-label={`拖动${item.name}排序`} title="拖动排序"
               className="grid size-8 shrink-0 touch-none place-items-center rounded-md text-muted-foreground hover:bg-secondary active:cursor-grabbing disabled:invisible"
               onPointerDown={(event) => onGripPointerDown(event, item.id)}
               onPointerMove={(event) => { if (draggingId) setOverIndex(dropIndex(event.clientY)); }}
               onPointerUp={onGripPointerUp}
               onPointerCancel={() => { setDraggingId(null); setOverIndex(null); }}>
               <GripVertical className="size-4" />
-            </button>
+            </button> : null}
             <Link to="/" search={{ g: item.id }}
               className="grid min-w-0 flex-1 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-[minmax(0,1fr)_4rem_5rem_9rem]">
               <span className="col-span-3 break-words text-base font-medium sm:col-span-1">{item.name}</span>
               <span className="text-xs tabular-nums text-muted-foreground sm:text-right sm:text-sm">{count}<span className="sm:hidden"> 道</span><span className="sr-only hidden sm:inline"> 道题</span></span>
               <span className="text-xs tabular-nums text-muted-foreground sm:text-right sm:text-sm"><span className="sm:hidden">待复习 </span><span className="sr-only hidden sm:inline">待复习 </span>{due}</span>
               <span className="min-w-0">
-                <span className="mb-1 flex justify-end gap-1 text-xs tabular-nums text-muted-foreground"><span className="sr-only">已掌握 </span>{mastered}/{count} · {percent}%</span>
+                <span className="mb-1 flex justify-end gap-1 text-xs tabular-nums text-muted-foreground"><span className="sr-only">掌握率 </span>{percent}%</span>
                 <span className="block h-1 overflow-hidden rounded-full bg-rule">
                   <span className="block h-full rounded-full bg-mastered" style={{ width: `${percent}%` }} />
                 </span>
               </span>
             </Link>
-            <ConfirmAction title={`删除分组“${item.name}”？`}
+            {managing ? <ConfirmAction title={`删除分组“${item.name}”？`}
               description={count ? `组内 ${count} 道题会保留并移至“未分组”。分组删除后无法恢复。` : "这是一个空分组，删除后无法恢复。"}
               onConfirm={() => onDelete(item.id)}>
               <Button type="button" variant="ghost" size="icon" title="删除小组" aria-label={`删除${item.name}`}
                 className="size-8 min-h-8 shrink-0 text-muted-foreground hover:text-destructive">
                 <Trash2 className="size-3.5" />
               </Button>
-            </ConfirmAction>
+            </ConfirmAction> : null}
           </div>
         );
       })}
@@ -1339,15 +1370,13 @@ function CollectionIdentity({
   }
 
   if (!editing) return (
-    <section aria-label="分组信息" className="flex items-start gap-3 border-b border-border py-4">
-      <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+    <section aria-label="分组信息" className="flex items-start gap-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="min-w-0">
-          <p className="mb-1 text-xs text-muted-foreground">大组</p>
-          <p className="break-words text-base">{groupName || UNGROUPED_FOLDER}</p>
+          <p className="break-words text-sm text-muted-foreground">{groupName || UNGROUPED_FOLDER}</p>
         </div>
         <div className="min-w-0">
-          <p className="mb-1 text-xs text-muted-foreground">小组 · {COLLECTION_KIND_LABEL[kind]}</p>
-          <h2 className="break-words font-display text-lg font-semibold">{name}</h2>
+          <h1 className="break-words font-display text-2xl font-semibold">{name}</h1>
         </div>
       </div>
       <Tooltip>

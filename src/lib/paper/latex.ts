@@ -101,7 +101,7 @@ export function buildExamLatex(
         : `\\par\\vspace{${blankHeightCm(p, item.blankLines ?? options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
       const analysis = options.withAnswers
         ? `
-{\\color{blue}{\\heiti 解析}\\quad ${toTex(p.correctAnswer || "（略）")}
+{\\color{black}{\\heiti 解析}\\quad ${toTex(p.correctAnswer || "（略）")}
 \\par ${toTex(p.analysis || "")}}`
         : "";
       return `\\begin{question}
@@ -138,7 +138,7 @@ ${analysis}
 \\thispagestyle{fancy}
 \\begin{center}
   {\\heiti\\LARGE 解集\\quad ${escapeTex(options.dateLabel)}}\\\\[0.55em]
-  {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "{\\normalsize\\color{blue}\\fbox{\\strut 解析}}" : ""}}
+  {\\heiti\\LARGE \\underline{\\quad ${escapeTex(options.title)}\\quad}${options.withAnswers ? "{\\normalsize\\color{black}\\fbox{\\strut 解析}}" : ""}}
 \\end{center}
 \\vspace{0.6em}
 \\noindent 姓名\\hrulefill\\,\\hfill
@@ -173,7 +173,7 @@ function buildHandoutLatex(
       const idea =
         options.withAnswers
           ? `
-{\\color{blue}\\noindent{\\heiti 思路}\\quad ${toTex(p.analysis || "（略）")}
+{\\color{black}\\noindent{\\heiti 思路}\\quad ${toTex(p.analysis || "（略）")}
 \\par {\\heiti 答案}\\quad ${toTex(p.correctAnswer || "（略）")}}`
           : `\\par\\vspace{${blankHeightCm(p, item.blankLines ?? options.blankLines ?? DEFAULT_BLANK_LINES, options.blankAuto)}}`;
       return `\\par ${mark}\\hspace{0.4em}${toTex(p.stem)}

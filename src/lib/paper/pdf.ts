@@ -9,6 +9,33 @@ const CSS_DPI = 96;
 const PDF_DPI = 450;
 const PDF_RENDER_SCALE = PDF_DPI / CSS_DPI;
 
+async function prepareMathDelimiters(document: Document, page: HTMLElement, scale: number) {
+  // Snapshot KaTeX's SVG pieces in the export clone. Canvas capture otherwise
+  // clips/repositions these absolutely positioned, em-sized delimiter strips.
+  for (const svg of page.querySelectorAll<SVGSVGElement>(".katex .delimsizing.mult svg")) {
+    const { width, height } = svg.getBoundingClientRect();
+    if (!width || !height) continue;
+    const color = svg.ownerDocument.defaultView!.getComputedStyle(svg).color;
+    const standalone = svg.cloneNode(true) as SVGSVGElement;
+    standalone.removeAttribute("style");
+    standalone.setAttribute("width", `${width}px`);
+    standalone.setAttribute("height", `${height}px`);
+    standalone.setAttribute("fill", color);
+    standalone.setAttribute("stroke", "none");
+    const image = new Image();
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(standalone))}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(width * scale);
+    canvas.height = Math.ceil(height * scale);
+    canvas.style.cssText = `position:absolute;display:block;width:${width}px;height:${height}px;`;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法绘制公式括号，请重试导出");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    svg.replaceWith(canvas);
+  }
+}
+
 async function waitImages(root: ParentNode) {
   const imgs = [...root.querySelectorAll("img")];
   await Promise.all(
@@ -61,6 +88,7 @@ export async function appendBookPdfPage(
     logging: false,
     useCORS: true,
     foreignObjectRendering: false,
+    onclone: (document, page) => prepareMathDelimiters(document, page, options.dpi / CSS_DPI),
   });
   try {
     options.signal.throwIfAborted();
@@ -105,6 +133,7 @@ export async function buildExamPdf(
       logging: false,
       useCORS: true,
       foreignObjectRendering: false,
+      onclone: (document, page) => prepareMathDelimiters(document, page, PDF_RENDER_SCALE),
     });
     const png = await canvasPng(shot);
     const image = await pdf.embedPng(png);

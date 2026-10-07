@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import type { DateFilter } from "@/lib/problems/dates";
 import { cn } from "@/lib/utils";
 
+export function dateFilterLabel(value: DateFilter, day: string) {
+  return value === "today" ? "今天" : value === "7d" ? "近7天" : value === "30d" ? "近30天" : value === "day" && day ? day : "日期";
+}
+
 export function FilterMenu<T extends string>({
   idleLabel,
   value,
@@ -36,8 +40,8 @@ export function FilterMenu<T extends string>({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          "h-9 rounded-full px-3.5 text-sm transition-colors",
-          active || open ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+          "h-9 rounded-md border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+          active || open ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-surface text-fg hover:bg-secondary",
         )}
       >
         {active ? current?.label ?? idleLabel : idleLabel}
@@ -78,8 +82,7 @@ export function DateMenu({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const label =
-    value === "today" ? "今天" : value === "7d" ? "近7天" : value === "30d" ? "近30天" : value === "day" && day ? day : "日期";
+  const label = dateFilterLabel(value, day);
   const active = value !== "all";
 
   useEffect(() => {
@@ -104,8 +107,8 @@ export function DateMenu({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          "h-9 rounded-full px-3.5 text-sm transition-colors",
-          active || open ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+          "h-9 rounded-md border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+          active || open ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-surface text-fg hover:bg-secondary",
         )}
       >
         {label}
@@ -186,8 +189,8 @@ export function DifficultyMenu({
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          "h-9 rounded-full px-3.5 text-sm transition-colors",
-          value.length || open ? "bg-fg text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-fg",
+          "h-9 rounded-md border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+          value.length || open ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-surface text-fg hover:bg-secondary",
         )}
       >
         {label}
@@ -210,7 +213,7 @@ export function DifficultyMenu({
                 <span
                   className={cn(
                     "grid size-4 shrink-0 place-items-center rounded border border-border",
-                    selected && "border-fg bg-fg text-primary-foreground",
+                    selected && "border-primary bg-primary/10 text-primary",
                   )}
                 >
                   {selected ? <Check className="size-3" /> : null}

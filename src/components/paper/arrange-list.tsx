@@ -2,6 +2,8 @@ import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { type PointerEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LayoutPick } from "@/components/paper/layout-pick";
+import { PaperSteps } from "@/components/paper/paper-steps";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -108,33 +110,28 @@ export function ArrangeList({
 
   return (
     <div className="flex flex-col gap-5">
+      <BackButton className="self-start" onClick={onBack} title="返回选题" />
+      <PaperSteps current="arrange" />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">排版</h1>
+          <h1 className="font-display text-2xl font-semibold">排版</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            按住左侧横条拖动排序。{handout ? "学案按要点 / 例题 / 练习分栏。" : `总分 ${total} 分。`}
+            {problemCount} 道题{!handout && total > 0 ? ` · 总分 ${total} 分` : ""}
           </p>
           {onSheetKind ? <SheetKindToggle className="mt-2" value={sheetKind} onChange={onSheetKind} /> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <BackButton onClick={onBack} title="返回选题" />
           <Button onClick={onNext} disabled={!problemCount}>
-            {handout ? "预览学案" : "预览试卷"}
+            预览并导出
           </Button>
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {presets.map((name) => (
-          <Button key={name} type="button" size="sm" variant="outline" onClick={() => addHeading(name)}>
-            <Plus className="size-4" />
-            {name}
-          </Button>
-        ))}
-        <Button type="button" size="sm" variant="outline" onClick={() => addHeading(handout ? "小节" : "大题")}>
-          <Plus className="size-4" />
-          自定义标题
-        </Button>
+        <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline"><Plus />添加标题</Button></DropdownMenuTrigger><DropdownMenuContent>
+          {presets.map((name) => <DropdownMenuItem key={name} onSelect={() => addHeading(name)}>{name}</DropdownMenuItem>)}
+          <DropdownMenuItem onSelect={() => addHeading(handout ? "小节" : "大题")}>自定义标题</DropdownMenuItem>
+        </DropdownMenuContent></DropdownMenu>
         {templates.length ? (
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <LayoutPick value={layoutId} onChange={setLayoutId} />
@@ -179,6 +176,7 @@ export function ArrangeList({
                     isHeading ? "text-primary-foreground/80" : "text-muted-foreground",
                   )}
                   aria-label="拖动"
+                  title="拖动排序"
                   onPointerDown={(event) => onGripPointerDown(event, row.id)}
                   onPointerMove={onGripPointerMove}
                   onPointerUp={onGripPointerUp}
