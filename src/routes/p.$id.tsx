@@ -8,6 +8,7 @@ import { FigureFrame } from "@/components/notebook/figure-frame";
 import { FigureRedrawControls } from "@/components/notebook/figure-redraw-controls";
 import { redrawDiagram } from "@/lib/image/figure";
 import { TagEditor } from "@/components/notebook/tag-editor";
+import { KnowledgeLink } from "@/components/notebook/knowledge-link";
 import { VariantDialog } from "@/components/notebook/variant-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -219,6 +220,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Button>
         </nav>
         <div className="flex flex-wrap gap-2">
+          <KnowledgeLink key={problem.id} scope={{ problemIds: [problem.id] }} disabled={pending > 0 || !problem.stem.trim()} />
           <VariantDialog source={problem} open={variantOpen} onOpenChange={setVariantOpen} />
           <Button
             variant="outline"
@@ -315,7 +317,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </div>
         </div>
         {problem.figures
-          .filter((figure) => !figure.subproblem || !subproblemNumbers.includes(figure.subproblem))
+          .filter((figure) => !figure.inline && (!figure.subproblem || !subproblemNumbers.includes(figure.subproblem)))
           .map((figure) => (
             <FigureWithActions key={figure.id} figure={figure} stem={problem.stem} onChange={updateFigure} onRecrop={openCrop} onRemove={(item) => removeFigure(item.id)} />
           ))}
@@ -332,6 +334,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
       <Panel tone="answer">
         <EditableMath
           value={problem.correctAnswer}
+          renderPreview={(text) => <MathText text={text} figures={problem.figures} tight />}
           placeholder="正确答案"
           header={<FieldHeading emphasized>答案</FieldHeading>}
           headerAction={
@@ -350,6 +353,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
       <Panel tone="analysis">
         <EditableMath
           value={problem.analysis}
+          renderPreview={(text) => <MathText text={text} figures={problem.figures} tight />}
           placeholder="解析"
           header={<FieldHeading emphasized>解析</FieldHeading>}
           emptyText={solving ? "正在生成解析…" : undefined}
@@ -611,10 +615,10 @@ function StemWithFigures({
     <div className="space-y-3">
       {sections.map((section, index) => (
         <div key={`${section.subproblem}-${index}`}>
-          <MathText text={section.text} className="text-base" />
+          <MathText text={section.text} figures={figures} className="text-base" />
           {section.subproblem > 0
             ? figures
-                .filter((figure) => figure.subproblem === section.subproblem)
+                .filter((figure) => !figure.inline && figure.subproblem === section.subproblem)
                 .map((figure) => (
                   <FigureWithActions key={figure.id} figure={figure} stem={stem} onChange={onChange} onRecrop={onRecrop} onRemove={onRemove} />
                 ))

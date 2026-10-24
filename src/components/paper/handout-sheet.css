@@ -34,6 +34,8 @@
 .handout-sheet .hn-sec { margin:3mm 0 6mm; }
 .handout-sheet .hn-section-rule { display:block; width:100%; border-top:.3mm solid var(--hn-green); }
 .handout-sheet .hn-sec-title { margin:3mm 0 0; color:var(--hn-green); font:600 15pt/1.25 HandoutSourceHan,serif; }
+.handout-sheet .hn-answer-title h2 { margin:0; text-align:center; color:var(--hn-green); font:600 18pt/1.4 HandoutSourceHan,serif; }
+.handout-sheet .hn-answer-heading { min-height:7mm; font-weight:600; }
 .handout-sheet .exam-q { margin:6mm 0 2mm; }
 .handout-sheet .exam-q:first-child { margin-top:0; }
 .handout-sheet .hn-question-heading { margin:0 0 2mm; line-height:1.5; }

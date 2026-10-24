@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { coerceAnswerPlacement, handoutAnswerItems } from "./answer-placement.ts";
+import type { ExamItem } from "./layout";
 import {
   addToBasket,
   applyLayoutToIds,
@@ -16,6 +18,32 @@ import {
 } from "./session.ts";
 
 describe("paper session", () => {
+  it("round-trips answer placement and keeps legacy templates inline", () => {
+    const session = saveTemplate(emptySession(), {
+      name: "End answers", title: "Handout", sheetKind: "handout", withAnswers: true,
+      answerPlacement: "end", rows: [{ kind: "problem", id: "p1", problemId: "p1" }],
+    });
+    assert.equal(parseSession(JSON.parse(JSON.stringify(session))).templates[0].answerPlacement, "end");
+    const legacy = { ...session.templates[0], answerPlacement: undefined };
+    assert.equal(parseSession({ templates: [legacy] }).templates[0].answerPlacement, "inline");
+    assert.equal(coerceAnswerPlacement("invalid"), "inline");
+    assert.equal(coerceAnswerPlacement(null), "inline");
+  });
+
+  it("keeps answer numbering and headings but omits note-only and empty sections", () => {
+    const question = (role: "points" | "example" | "practice", label: string) => ({ kind: "problem", role, label }) as ExamItem;
+    const heading = (title: string, role: "points" | "example" | "practice") => ({ kind: "heading", title, role }) as ExamItem;
+    const example = question("example", "1");
+    const practice = question("practice", "1");
+    const examples = heading("Examples", "example");
+    const exercises = heading("Exercises A", "practice");
+    assert.deepEqual(handoutAnswerItems([
+      heading("Notes", "points"), question("points", ""), examples, example,
+      exercises, practice, heading("Empty", "practice"),
+    ]), [examples, example, exercises, practice]);
+    assert.deepEqual(handoutAnswerItems([]), []);
+    assert.deepEqual(handoutAnswerItems([question("points", "")]), []);
+  });
   it("normalizes legacy default paper titles", () => {
     assert.equal(normalizePaperTitle("错题练习卷", "exam"), "解集练习卷");
     assert.equal(normalizePaperTitle("错题学案", "handout"), "解集学案");

@@ -1,0 +1,9 @@
+Upstream: https://github.com/xkwxdyy/exam-zh
+Revision: afffaeac068a2ba2b3bb39cc8c3878840f701ea0
+Retrieved: 2026-10-16
+License: LaTeX Project Public License 1.3c (see LICENSE).
+
+The .cls and .sty files are unmodified upstream files. Moti's custom
+configuration is generated separately in student.tex and teacher.tex.
+Full corresponding source and documentation:
+https://github.com/xkwxdyy/exam-zh/tree/afffaeac068a2ba2b3bb39cc8c3878840f701ea0

@@ -19,6 +19,24 @@ function input(patch: Partial<Problem> = {}, options: Partial<PaperExportInput> 
 }
 
 describe("generated PDF validity", () => {
+  it("invalidates a handout PDF when answers move to the end", () => {
+    const mode = { sheetKind: "handout" as const, withAnswers: true };
+    assert.equal(samePaperExport(input({}, mode), input({}, { ...mode, answerPlacement: "inline" })), true);
+    assert.equal(samePaperExport(input({}, mode), input({}, { ...mode, answerPlacement: "end" })), false);
+    assert.equal(samePaperExport(input(), input({}, { answerPlacement: "end" })), true);
+  });
+  it("invalidates LaTeX template, duration, space, question types and scores", () => {
+    const mode = { template: "gaokao" as const, examMinutes: 120, solutionSpaceCm: 5 };
+    for (const patch of [{ template: "general" as const }, { examMinutes: 90 }, { solutionSpaceCm: 3 }]) {
+      assert.equal(samePaperExport(input({}, mode), input({}, { ...mode, ...patch })), false);
+    }
+    for (const patch of [{ tags: ["单选题"] }, { notes: "分值：5分。" }, { title: "Changed" }]) {
+      assert.equal(samePaperExport(input({}, mode), input(patch, mode)), false);
+    }
+    const next = input({}, mode);
+    if (next.items[0].kind === "problem") next.items[0].points = 8;
+    assert.equal(samePaperExport(input({}, mode), next), false);
+  });
   it("survives fresh objects from cache and unrelated metadata changes", () => {
     assert.equal(samePaperExport(input(), input()), true);
     const refreshed = input({ mastery: "mastered", updatedAt: 9, tags: ["new"], difficulty: 5, title: "Renamed", notes: "Note" });
@@ -56,7 +74,7 @@ describe("generated PDF validity", () => {
   it("checks displayed figures but ignores retained originals", () => {
     const figure = { id: "f", title: "Figure", caption: "", svg: "", image: "data:image/png;base64,AAAA" };
     assert.equal(samePaperExport(input({ figures: [figure] }), input({ figures: [{ ...figure, originalImage: "data:image/png;base64,BBBB" }] })), true);
-    for (const patch of [{ image: "data:image/png;base64,CCCC" }, { subproblem: 1 }]) {
+    for (const patch of [{ image: "data:image/png;base64,CCCC" }, { subproblem: 1 }, { inline: true }]) {
       assert.equal(samePaperExport(input({ figures: [figure] }), input({ figures: [{ ...figure, ...patch }] })), false);
     }
     assert.equal(samePaperExport(input(), input({ figures: [figure] })), false);

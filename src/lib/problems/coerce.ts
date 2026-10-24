@@ -24,6 +24,7 @@ function asFigures(value: unknown): Figure[] {
     if (!svgRaw && !image) continue;
     figures.push({
       id: asString(fig.id, crypto.randomUUID()).slice(0, 80),
+      inline: fig.inline === true || undefined,
       title: asString(fig.title, "图形").slice(0, 80),
       svg: (svgRaw ?? "").slice(0, 200_000),
       caption: asString(fig.caption).slice(0, 200),

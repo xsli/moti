@@ -183,10 +183,12 @@ async function createPgliteSql(): Promise<Sql> {
     }
 
     async function open(dir: string) {
+      const started = performance.now();
       await mkdir(dir, { recursive: true });
       await clearStalePid(dir);
       const pg = new PGlite(dir, options);
       await pg.waitReady;
+      if (process.env.MOTI_PROFILE_STARTUP) console.log(`[startup] PGlite ready: ${Math.round(performance.now() - started)}ms`);
       await pg.exec(
         "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
       );

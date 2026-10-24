@@ -10,7 +10,7 @@ export type PaperRow =
 
 export type ExamItem =
   | { kind: "heading"; title: string; role: HeadingRole }
-  | { kind: "problem"; problem: Problem; number: number; blankLines: BlankLines; role: HeadingRole; label: string };
+  | { kind: "problem"; problem: Problem; number: number; blankLines: BlankLines; role: HeadingRole; label: string; points?: number };
 
 const CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
@@ -84,6 +84,7 @@ export function resolveExamItems(
   let exampleNo = 0;
   let practiceNo = 0;
   let sectionBlank = fallback;
+  let sectionPoints: number | undefined;
   let role: HeadingRole = "practice";
   rows.forEach((row, index) => {
     if (row.kind === "heading") {
@@ -92,6 +93,7 @@ export function resolveExamItems(
       heading += 1;
       role = headingRole(title);
       sectionBlank = row.blankLines ?? headingBlankPreset(title);
+      sectionPoints = row.perScore > 0 ? row.perScore : undefined;
       const label =
         sheetKind === "handout"
           ? `${chineseOrdinal(heading)}、${title}`
@@ -117,6 +119,7 @@ export function resolveExamItems(
       problem,
       number,
       blankLines: sectionBlank,
+      ...(sectionPoints !== undefined ? { points: sectionPoints } : {}),
       role,
       label,
     });

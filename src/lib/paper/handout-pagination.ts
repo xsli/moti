@@ -1,4 +1,4 @@
-import { inkRanges, safeBookCut } from "./book-pagination";
+import { bookFragmentEnd, inkRanges } from "./book-pagination";
 
 export function fitHandoutHeader(header: HTMLElement) {
   for (const node of header.querySelectorAll<HTMLElement>(".hn-meta, .hn-running-title")) {
@@ -58,6 +58,9 @@ export function paginateHandout(measure: HTMLElement, pack: HTMLElement) {
   }
   // Oversized paragraphs are split only between text lines, never through math or figures.
   function splitTall(node: HTMLElement, target: HTMLElement, nextTarget: () => HTMLElement) {
+    // Measure with the same margin containment as the positioned continuation clones.
+    node.style.margin = "0";
+    node.style.display = "flow-root";
     target.append(node);
     fitMath(node);
     const height = node.getBoundingClientRect().height;
@@ -68,12 +71,12 @@ export function paginateHandout(measure: HTMLElement, pack: HTMLElement) {
       const fragment = document.createElement("div");
       fragment.style.cssText = "position:relative;overflow:hidden;display:flow-root";
       const content = clone(node);
-      content.style.cssText = `position:absolute;left:0;right:0;top:${-start}px;margin:0;`;
+      content.style.cssText = `position:absolute;left:0;right:0;top:${-start}px;margin:0;display:flow-root;`;
       fragment.append(content);
       target.append(fragment);
       const overhead = body.getBoundingClientRect().bottom - fragment.getBoundingClientRect().top;
       const available = limit() - fragment.getBoundingClientRect().top - overhead - 2;
-      const end = Math.min(height, safeBookCut(start, Math.min(height, start + available), ink));
+      const { end } = bookFragmentEnd(start, available, height, height, ink);
       if (end <= start + 1) throw new Error("单个公式或配图超过整页高度，请缩小后重试");
       fragment.style.height = `${end - start}px`;
       if (!fits()) throw new Error("讲义段落超出页面，请缩短该段落后重试");
@@ -106,6 +109,15 @@ export function paginateHandout(measure: HTMLElement, pack: HTMLElement) {
   newPage();
   let pending: HTMLElement[] = [];
   for (const source of measure.querySelectorAll<HTMLElement>("[data-hn-item]")) {
+    if (source.dataset.pageBreak === "before") {
+      // Flush any trailing custom headings before starting the answer appendix.
+      for (const heading of pending) {
+        body.append(heading);
+        if (!fits()) { heading.remove(); newPage(); body.append(heading); }
+      }
+      pending = [];
+      if (body.children.length) newPage();
+    }
     if (source.classList.contains("hn-sec")) { pending.push(clone(source)); continue; }
     const question = clone(source.querySelector(".exam-q")!);
     const frames = [...source.querySelectorAll<HTMLElement>(".hn-frame")];

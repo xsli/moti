@@ -122,6 +122,7 @@ function parseFigures(raw: string): Figure[] {
       if (!svg && !image) continue;
       figures.push({
         id: String(fig.id ?? crypto.randomUUID()).slice(0, 80),
+        inline: fig.inline === true || undefined,
         title: String(fig.title ?? "图形").slice(0, 80),
         svg: svg ?? "",
         caption: String(fig.caption ?? "").slice(0, 200),

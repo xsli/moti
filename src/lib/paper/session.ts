@@ -1,11 +1,13 @@
 import { coerceBlankAuto, coerceBlankLines, DEFAULT_BLANK_LINES, type BlankLines } from "./space.ts";
 import type { PaperRow, SheetKind } from "./layout";
+import { coerceAnswerPlacement, type AnswerPlacement } from "./answer-placement.ts";
 
 export type PaperTemplate = {
   id: string;
   name: string;
   title: string;
   withAnswers: boolean;
+  answerPlacement?: AnswerPlacement;
   blankLines: BlankLines;
   blankAuto: boolean;
   sheetKind: SheetKind;
@@ -122,6 +124,7 @@ export function parseSession(raw: unknown): PaperSession {
         name,
         title: normalizePaperTitle(row.title, sheetKind),
         withAnswers: Boolean(row.withAnswers),
+        answerPlacement: coerceAnswerPlacement(row.answerPlacement),
         blankLines: coerceBlankLines(row.blankLines),
         blankAuto: coerceBlankAuto(row.blankAuto, row.blankLines),
         sheetKind,
@@ -250,6 +253,7 @@ export function saveTemplate(
     name: string;
     title: string;
     withAnswers: boolean;
+    answerPlacement?: AnswerPlacement;
     blankLines?: BlankLines;
     blankAuto?: boolean;
     sheetKind?: SheetKind;
@@ -264,6 +268,7 @@ export function saveTemplate(
     name,
     title: input.title.trim().slice(0, 40) || (input.sheetKind === "handout" ? DEFAULT_HANDOUT_TITLE : DEFAULT_EXAM_TITLE),
     withAnswers: input.withAnswers,
+    answerPlacement: coerceAnswerPlacement(input.answerPlacement),
     blankLines: coerceBlankLines(input.blankLines ?? DEFAULT_BLANK_LINES),
     blankAuto: Boolean(input.blankAuto),
     sheetKind: input.sheetKind === "handout" ? "handout" : "exam",

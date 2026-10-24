@@ -117,13 +117,13 @@ function ReviewPage() {
       <div className="h-1 rounded-full bg-rule" role="progressbar" aria-label="本轮进度" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><div className="h-full rounded-full bg-primary" style={{ width: `${done / total * 100}%` }} /></div>
       <article className="space-y-5">
         <div className="flex items-center justify-between gap-3"><h2 className="font-display text-lg font-semibold">{current.title}</h2><Button variant="ghost" size="icon" title="打开完整题目" aria-label="打开完整题目" asChild><Link to="/p/$id" params={{ id: current.id }}><ExternalLink /></Link></Button></div>
-        <MathText text={current.stem} />
-        {current.figures.map((figure) => <FigureFrame key={figure.id} svg={figure.svg} image={figure.image} caption={figure.caption} />)}
+        <MathText text={current.stem} figures={current.figures} />
+        {current.figures.filter(figure => !figure.inline).map((figure) => <FigureFrame key={figure.id} svg={figure.svg} image={figure.image} caption={figure.caption} />)}
         {loading ? <p role="status" className="text-sm text-muted-foreground">加载完整题目…</p> : null}
         {revealed ? <>
           {current.myAnswer ? <section><h3 className="text-sm font-semibold">我的作答</h3><MathText text={current.myAnswer} className="mt-2 text-sm" /></section> : null}
-          <section className="border-l-2 border-emerald-700/40 bg-emerald-50/70 p-4 text-emerald-900"><h3 className="mb-2 text-sm font-semibold">答案</h3><MathText text={current.correctAnswer || "（尚未填写）"} /></section>
-          <section className="border-l-2 border-sky-700/40 bg-sky-50/70 p-4 text-sm text-sky-900"><h3 className="mb-2 font-semibold">解析</h3><MathText text={current.analysis || "（尚未填写）"} tight /></section>
+          <section className="border-l-2 border-emerald-700/40 bg-emerald-50/70 p-4 text-emerald-900"><h3 className="mb-2 text-sm font-semibold">答案</h3><MathText text={current.correctAnswer || "（尚未填写）"} figures={current.figures} /></section>
+          <section className="border-l-2 border-sky-700/40 bg-sky-50/70 p-4 text-sm text-sky-900"><h3 className="mb-2 font-semibold">解析</h3><MathText text={current.analysis || "（尚未填写）"} figures={current.figures} tight /></section>
         </> : <Button onClick={() => setRevealed(true)} disabled={loading}>查看答案与解析</Button>}
       </article>
       {revealed ? <div className="grid grid-cols-2 gap-3"><Button variant="outline" disabled={busy} onClick={() => void nextAfter(false)}><X />还需复习</Button><Button disabled={busy} onClick={() => void nextAfter(true)}><Check />记住了</Button></div> : null}

@@ -6,6 +6,8 @@ import { splitStemSections } from "@/lib/problems/subproblems";
 import { handoutItems, type ExamItem } from "@/lib/paper/layout";
 import { blankHeightMm } from "@/lib/paper/space";
 import { paginateHandout } from "@/lib/paper/handout-pagination";
+import { handoutAnswerItems, type AnswerPlacement } from "@/lib/paper/answer-placement";
+import type { Figure } from '@/lib/problems/types';
 
 const Text = memo(MathText);
 function chunks(text: string) {
@@ -27,14 +29,14 @@ function chunks(text: string) {
   flush();
   return result;
 }
-const Paragraphs = memo(function Paragraphs({ text }: { text: string }) {
+const Paragraphs = memo(function Paragraphs({ text, figures }: { text: string; figures?: Figure[] }) {
   return chunks(text).map((part, i) => <div className="hn-block" key={i}>
-    <Text className="hn-text" text={part} tight />
+    <Text className="hn-text" text={part} figures={figures} tight />
   </div>);
 });
-function Frame({ kind, text, practice = false }: { kind: "answer" | "analysis"; text: string; practice?: boolean }) {
+function Frame({ kind, text, figures, practice = false }: { kind: "answer" | "analysis"; text: string; figures?: Figure[]; practice?: boolean }) {
   if (!text.trim()) return null;
-  return <fieldset className={`hn-frame${practice ? " hn-frame-practice" : ""}`} data-frame={kind}><legend>{kind === "answer" ? "答案" : "解析"}</legend><Paragraphs text={text} /></fieldset>;
+  return <fieldset className={`hn-frame${practice ? " hn-frame-practice" : ""}`} data-frame={kind}><legend>{kind === "answer" ? "答案" : "解析"}</legend><Paragraphs text={text} figures={figures} /></fieldset>;
 }
 function Title({ title }: { title: string }) {
   const lecture = title.trim().match(/^第\s*([0-9０-９一二三四五六七八九十百零〇两]+)\s*([讲章课节])\s*[：:、.．-]?\s*(.+)$/);
@@ -65,7 +67,7 @@ const Question = memo(function Question({ item, withAnswers, blankAuto }: {
   const p = item.problem;
   const sections = splitStemSections(p.stem);
   const subs = new Set(sections.map(s => s.subproblem).filter(Boolean));
-  const figures = p.figures.filter(f => f.image || f.svg);
+  const figures = p.figures.filter(f => !f.inline && (f.image || f.svg));
   const figure = (f: typeof figures[number]) => <div className="exam-figure" key={f.id}>
     {f.image ? <img src={f.image} alt="" /> : <div dangerouslySetInnerHTML={{ __html: f.svg }} />}
   </div>;
@@ -73,24 +75,40 @@ const Question = memo(function Question({ item, withAnswers, blankAuto }: {
     <article className={`exam-q ${item.role === "practice" ? "hn-exercise" : item.role === "example" ? "hn-example" : ""}`} data-problem={p.id}>
       {item.role === "example" || item.role === "practice" ? <div className="hn-question-heading"><span className={item.role === "example" ? "hn-example-no" : "hn-exercise-no"}>{item.label}</span></div> : null}
       {item.role === "points" ? <Paragraphs text={p.notes.trim() || p.title} /> : sections.map((s, i) => <div key={i}>
-        <Paragraphs text={s.text} />
+        <Paragraphs text={s.text} figures={p.figures} />
         {s.subproblem > 0 ? figures.filter(f => f.subproblem === s.subproblem).map(figure) : null}
       </div>)}
       {figures.filter(f => !f.subproblem || !subs.has(f.subproblem)).map(figure)}
     </article>
-    {withAnswers ? <><Frame kind="answer" text={p.correctAnswer} practice={item.role === "practice"} /><Frame kind="analysis" text={p.analysis} practice={item.role === "practice"} /></>
+    {withAnswers ? <><Frame kind="answer" text={p.correctAnswer} figures={p.figures} practice={item.role === "practice"} /><Frame kind="analysis" text={p.analysis} figures={p.figures} practice={item.role === "practice"} /></>
       : item.role !== "points" ? <div className="hn-writing" style={{ height: `${blankHeightMm(p, item.blankLines, blankAuto)}mm` }} /> : null}
   </div>;
 });
 
-export function HandoutSheet({ title, groupName = "", items, withAnswers, blankAuto = false, quotes, onReady, onError }: {
+function Answer({ item }: { item: Extract<ExamItem, { kind: "problem" }> }) {
+  const p = item.problem;
+  const practice = item.role === "practice";
+  return <div data-hn-item data-answer-for={p.id}>
+    <article className={`exam-q hn-answer-heading ${practice ? "hn-exercise" : "hn-example"}`} data-answer-problem={p.id}>
+      <div className="hn-question-heading"><span className={practice ? "hn-exercise-no" : "hn-example-no"}>{item.label}</span></div>
+      <span>{practice ? "习题" : "例题"} {item.label}</span>
+    </article>
+    <Frame kind="answer" text={p.correctAnswer} figures={p.figures} practice={practice} />
+    <Frame kind="analysis" text={p.analysis} figures={p.figures} practice={practice} />
+    {!p.correctAnswer.trim() && !p.analysis.trim() ? <Frame kind="answer" text="暂未录入答案与解析" practice={practice} /> : null}
+  </div>;
+}
+
+export function HandoutSheet({ title, groupName = "", items, withAnswers, answerPlacement = "inline", blankAuto = false, quotes, onReady, onError }: {
   title: string; groupName?: string; items: ExamItem[]; withAnswers: boolean; blankAuto?: boolean;
+  answerPlacement?: AnswerPlacement;
   quotes: { text: string; person: string }[]; onReady?: () => void; onError?: (message: string) => void;
 }) {
   const measure = useRef<HTMLDivElement>(null);
   const pack = useRef<HTMLDivElement>(null);
   const normalized = useMemo(() => handoutItems(items), [items]);
-  const input = useMemo(() => ({ title, groupName, normalized, withAnswers, blankAuto, quotes }), [title, groupName, normalized, withAnswers, blankAuto, quotes]);
+  const appendix = useMemo(() => withAnswers && answerPlacement === "end" ? handoutAnswerItems(normalized) : [], [normalized, withAnswers, answerPlacement]);
+  const input = useMemo(() => ({ title, groupName, normalized, withAnswers, answerPlacement, blankAuto, quotes }), [title, groupName, normalized, withAnswers, answerPlacement, blankAuto, quotes]);
   const [complete, setComplete] = useState<object | null>(null);
   const [error, setError] = useState("");
   const ready = complete === input;
@@ -130,7 +148,13 @@ export function HandoutSheet({ title, groupName = "", items, withAnswers, blankA
       </header>)}
       <Title title={title} />
       {normalized.map((item, i) => item.kind === "heading" ? <Section title={item.title} leading={i === 0} key={i} />
-        : <Question key={item.problem.id} item={item} withAnswers={withAnswers} blankAuto={blankAuto} />)}
+        : <Question key={item.problem.id} item={item} withAnswers={withAnswers && answerPlacement === "inline"} blankAuto={blankAuto} />)}
+      {appendix.length ? <>
+        <div className="hn-sec hn-answer-title" data-hn-item data-page-break="before"><h2>参考答案与解析</h2></div>
+        {appendix.map((item, i) => item.kind === "heading"
+          ? <div className="hn-sec" data-hn-item key={`heading-${i}`}><h3 className="hn-sec-title">{item.title}</h3></div>
+          : <Answer key={item.problem.id} item={item} />)}
+      </> : null}
       <footer className="exam-page-no"><span className="hn-footer-line" /><span className="hn-folio" /></footer>
     </div>
     <div className="exam-pack" ref={pack} aria-hidden={!ready} style={ready ? undefined : { visibility: "hidden" }} />

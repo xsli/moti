@@ -10,6 +10,7 @@ import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { chineseOrdinal, headingBlankPreset, headingRole, paperTotal, reorderRows, sectionCount, type PaperRow, type SheetKind } from "@/lib/paper/layout";
 import { applyLayoutToIds, idsFromRows } from "@/lib/paper/session";
+import { coerceAnswerPlacement, type AnswerPlacement } from "@/lib/paper/answer-placement";
 import { BLANK_LINE_OPTIONS, blankLineLabel, type BlankLines } from "@/lib/paper/space";
 import { usePaperStore } from "@/lib/paper/store";
 import type { Problem } from "@/lib/problems/types";
@@ -33,6 +34,7 @@ export function ArrangeList({
   onApplyMeta?: (meta: {
     title: string;
     withAnswers: boolean;
+    answerPlacement: AnswerPlacement;
     blankLines: BlankLines;
     blankAuto: boolean;
     sheetKind: SheetKind;
@@ -71,6 +73,7 @@ export function ArrangeList({
     onApplyMeta?.({
       title: template.title,
       withAnswers: template.withAnswers,
+      answerPlacement: coerceAnswerPlacement(template.answerPlacement),
       blankLines: template.blankLines,
       blankAuto: template.blankAuto,
       sheetKind: template.sheetKind ?? "exam",

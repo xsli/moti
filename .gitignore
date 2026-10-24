@@ -9,6 +9,7 @@ dist
 .data
 .data/**
 .data-*
+.local-tools/
 *.broken
 .env
 .env.*

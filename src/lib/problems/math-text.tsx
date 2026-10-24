@@ -1,6 +1,8 @@
 import katex from "katex";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { Figure } from './types';
+import { splitInlineFigures, inlineFigureImage } from './inline-figures';
 
 export type MathPiece =
   | { type: "text"; value: string }
@@ -100,6 +102,7 @@ export function splitMathPieces(input: string): MathPiece[] {
 
 export function MathText({
   text,
+  figures = [],
   className,
   inline = false,
   compact = false,
@@ -107,6 +110,7 @@ export function MathText({
   scrollHints = false,
 }: {
   text: string;
+  figures?: Figure[];
   className?: string;
   inline?: boolean;
   compact?: boolean;
@@ -128,12 +132,16 @@ export function MathText({
             if (previous?.type === "math" && previous.display) value = value.replace(/^\n+/, "");
             if (next?.type === "math" && next.display) value = value.replace(/\n+$/, "");
           }
-          return value.split("\n").map((line, lineIndex, arr) => (
-            <span key={`${index}-${lineIndex}`}>
+          return splitInlineFigures(value).map((part, partIndex) => part.type === 'figure' ? (
+            <span className="block my-3" key={`${index}-figure-${partIndex}`}>
+              {inlineFigureImage(figures, part.id) ? <img src={inlineFigureImage(figures, part.id)} alt={part.alt || '配图'} style={{ display: 'block', maxWidth: '100%', maxHeight: '360px', width: 'auto', height: 'auto', objectFit: 'contain', margin: '0 auto' }} /> : <span role="status">配图加载中</span>}
+            </span>
+          ) : part.value.split("\n").map((line, lineIndex, arr) => (
+            <span key={`${index}-${partIndex}-${lineIndex}`}>
               {line}
               {lineIndex < arr.length - 1 ? <br /> : null}
             </span>
-          ));
+          )));
         }
         if (piece.display && scrollHints) return <MathScroll key={index} className="math-equation my-2"><span dangerouslySetInnerHTML={{ __html: renderMath(piece.value, true) }} /></MathScroll>;
         return (

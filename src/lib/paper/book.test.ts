@@ -6,6 +6,18 @@ import type { Problem } from "../problems/types.ts";
 import { safeBookCut, bookFragmentEnd, bookContinuationStart } from "./book-pagination.ts";
 
 describe("book page boundaries", () => {
+  it("fits a final figure despite ink safety padding beyond the measured block", () => {
+    assert.deepEqual(bookFragmentEnd(1293, 931, 1634, 1634, [{ top: 1293, bottom: 1635 }]), {
+      end: 1634,
+      complete: true,
+    });
+  });
+  it("still refuses to split a figure when the remaining block does not fit", () => {
+    assert.deepEqual(bookFragmentEnd(1293, 200, 1634, 1634, [{ top: 1293, bottom: 1635 }]), {
+      end: 1293,
+      complete: false,
+    });
+  });
   it("discards excess writing space instead of creating a blank continuation page", () => {
     assert.deepEqual(bookFragmentEnd(0, 200, 400, 150, [{ top: 10, bottom: 148 }]), {
       end: 200,

@@ -1,6 +1,7 @@
 import katexCss from "katex/dist/katex.min.css?inline";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { HandoutSheet } from "./handout-sheet";
+import type { AnswerPlacement } from "@/lib/paper/answer-placement";
 import { chineseOrdinal, type ExamItem, type HeadingRole, type SheetKind } from "@/lib/paper/layout";
 import {
   BLANK_LINE_HEIGHT_MM,
@@ -369,7 +370,8 @@ type Block =
   | { kind: "heading"; title: string; role: HeadingRole }
   | { kind: "q"; problem: Problem; index: number; blankLines: BlankLines; role: HeadingRole; label: string }
   | { kind: "analysis"; problem: Problem; index: number }
-  | { kind: "handout-answer"; text: string; label?: "思路" | "答案"; first: boolean; answerStart: boolean };
+  | { kind: "analysis-part"; text: string; figures: Problem['figures']; first: boolean }
+  | { kind: "handout-answer"; text: string; figures: Problem['figures']; label?: "思路" | "答案"; first: boolean; answerStart: boolean };
 
 /** 试卷装订线旧俏皮话，暂时不用，改走 MATH_QUIPS。 */
 const SEAL_QUIPS = [
@@ -646,7 +648,7 @@ function QuestionBlock({
   const height = blankHeightMm(problem, blankLines, blankAuto);
   const useSizer = blankAuto && hasWrittenAnswer(problem);
   const mark = <span className="exam-no">{label || `${index + 1}.`}</span>;
-  const figures = problem.figures.filter((fig) => fig.image || fig.svg);
+  const figures = problem.figures.filter((fig) => !fig.inline && (fig.image || fig.svg));
   const stemSections = splitStemSections(problem.stem);
   const stemSubproblems = new Set(stemSections.map((section) => section.subproblem).filter(Boolean));
   const looseFigures = figures.filter((figure) => !figure.subproblem || !stemSubproblems.has(figure.subproblem));
@@ -658,7 +660,7 @@ function QuestionBlock({
         <div key={`${section.subproblem}-${sectionIndex}`}>
           <p className="exam-stem">
             {sectionIndex === 0 ? mark : null}
-            <SheetMathText text={section.text} inline />
+            <SheetMathText text={section.text} figures={problem.figures} inline />
           </p>
           {section.subproblem > 0
             ? figures
@@ -712,13 +714,13 @@ function IdeaBox({ problem }: { problem: Problem }) {
       {problem.analysis.trim() ? (
         <div>
           <b>思路</b>
-          <SheetMathText text={problem.analysis} inline />
+          <SheetMathText text={problem.analysis} figures={problem.figures} inline />
         </div>
       ) : null}
       {problem.correctAnswer.trim() ? (
         <div style={{ marginTop: problem.analysis.trim() ? "3pt" : 0 }}>
           <b>答案</b>
-          <SheetMathText text={problem.correctAnswer} inline />
+          <SheetMathText text={problem.correctAnswer} figures={problem.figures} inline />
         </div>
       ) : null}
     </div>
@@ -727,11 +729,13 @@ function IdeaBox({ problem }: { problem: Problem }) {
 
 function HandoutAnswerPart({
   text,
+  figures,
   label,
   first,
   answerStart,
 }: {
   text: string;
+  figures: Problem['figures'];
   label?: "思路" | "答案";
   first: boolean;
   answerStart: boolean;
@@ -741,7 +745,7 @@ function HandoutAnswerPart({
       className={`hn-idea hn-idea-part${first ? " hn-idea-first" : ""}${answerStart ? " hn-idea-answer" : ""}`}
     >
       {label ? <b>{label}</b> : null}
-      <SheetMathText text={text} inline />
+      <SheetMathText text={text} figures={figures} inline />
     </div>
   );
 }
@@ -776,10 +780,10 @@ function AnalysisBlock({ problem }: { problem: Problem }) {
   return (
     <div className="exam-analysis">
       <span className="exam-analysis-label">解析</span>
-      <SheetMathText text={problem.correctAnswer || "（略）"} inline />
+      <SheetMathText text={problem.correctAnswer || "（略）"} figures={problem.figures} inline />
       {problem.analysis ? (
         <div style={{ marginTop: "4pt" }}>
-          <SheetMathText text={problem.analysis} />
+          <SheetMathText text={problem.analysis} figures={problem.figures} />
         </div>
       ) : null}
     </div>
@@ -910,10 +914,15 @@ const BlockView = memo(function BlockView({
 }) {
   if (block.kind === "heading") return <SectionHead title={block.title} role={block.role} sheetKind={sheetKind} />;
   if (block.kind === "analysis") return <AnalysisBlock problem={block.problem} />;
+  if (block.kind === "analysis-part") return <div className="exam-analysis" style={{ marginTop: '3pt', marginBottom: '3pt' }}>
+    {block.first ? <span className="exam-analysis-label">解析</span> : null}
+    <SheetMathText text={block.text} figures={block.figures} inline />
+  </div>;
   if (block.kind === "handout-answer") {
     return (
       <HandoutAnswerPart
         text={block.text}
+        figures={block.figures}
         label={block.label}
         first={block.first}
         answerStart={block.answerStart}
@@ -976,7 +985,12 @@ const LegacyExamSheet = memo(function LegacyExamSheet({
           label: item.label,
         });
         if (!handout && withAnswers) {
-          next.push({ kind: "analysis", problem: item.problem, index: item.number - 1 });
+          if (item.problem.figures.some(figure => figure.inline)) {
+            const parts = splitAnswerText([item.problem.correctAnswer, item.problem.analysis].filter(Boolean).join('\n\n'));
+            parts.forEach((text, index) => next.push({ kind: 'analysis-part', text, figures: item.problem.figures, first: index === 0 }));
+          } else {
+            next.push({ kind: "analysis", problem: item.problem, index: item.number - 1 });
+          }
         } else if (handout && withAnswers) {
           let first = true;
           const ideaParts = splitAnswerText(item.problem.analysis);
@@ -985,6 +999,7 @@ const LegacyExamSheet = memo(function LegacyExamSheet({
             next.push({
               kind: "handout-answer",
               text,
+              figures: item.problem.figures,
               label: index === 0 ? "思路" : undefined,
               first,
               answerStart: false,
@@ -995,6 +1010,7 @@ const LegacyExamSheet = memo(function LegacyExamSheet({
             next.push({
               kind: "handout-answer",
               text,
+              figures: item.problem.figures,
               label: index === 0 ? "答案" : undefined,
               first,
               answerStart: index === 0,
@@ -1071,7 +1087,7 @@ const LegacyExamSheet = memo(function LegacyExamSheet({
         const nextBlock = blocks[i + 1];
         if (
           blocks[i]?.kind === "q" &&
-          (nextBlock?.kind === "analysis" || (nextBlock?.kind === "handout-answer" && nextBlock.first))
+          (nextBlock?.kind === "analysis" || ((nextBlock?.kind === "handout-answer" || nextBlock?.kind === 'analysis-part') && nextBlock.first))
         ) {
           groups.push([i, i + 1]);
           i += 1;
@@ -1212,6 +1228,7 @@ const LegacyExamSheet = memo(function LegacyExamSheet({
 
 export const ExamSheet = memo(function ExamSheet(props: ComponentProps<typeof LegacyExamSheet> & {
   groupName?: string;
+  answerPlacement?: AnswerPlacement;
   onError?: (message: string) => void;
 }) {
   const quotes = useMemo(() => createPaperQuoteDeck(), [props.title, props.dateLabel]);

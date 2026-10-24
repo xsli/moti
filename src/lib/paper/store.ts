@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PaperRow, SheetKind } from "./layout";
+import type { AnswerPlacement } from "./answer-placement";
 import type { BlankLines } from "./space";
 import {
   addToBasket as addIds,
@@ -123,6 +124,7 @@ interface PaperState extends PaperSession {
     name: string;
     title: string;
     withAnswers: boolean;
+    answerPlacement?: AnswerPlacement;
     blankLines?: BlankLines;
     blankAuto?: boolean;
     sheetKind?: SheetKind;

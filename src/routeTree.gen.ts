@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CaptureRouteImport } from './routes/capture'
+import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as PaperRouteImport } from './routes/paper'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as PIdRouteImport } from './routes/p.$id'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const CaptureRoute = CaptureRouteImport.update({
   id: '/capture',
   path: '/capture',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeRoute = KnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PaperRoute = PaperRouteImport.update({
@@ -50,6 +56,7 @@ const ReadIdRoute = ReadIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
+  '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
+  '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/capture': typeof CaptureRoute
+  '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
   '/p/$id': typeof PIdRoute
@@ -74,13 +83,28 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/capture' | '/paper' | '/review' | '/p/$id' | '/read/$id'
+  fullPaths:
+    | '/'
+    | '/capture'
+    | '/knowledge'
+    | '/paper'
+    | '/review'
+    | '/p/$id'
+    | '/read/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/capture' | '/paper' | '/review' | '/p/$id' | '/read/$id'
+  to:
+    | '/'
+    | '/capture'
+    | '/knowledge'
+    | '/paper'
+    | '/review'
+    | '/p/$id'
+    | '/read/$id'
   id:
     | '__root__'
     | '/'
     | '/capture'
+    | '/knowledge'
     | '/paper'
     | '/review'
     | '/p/$id'
@@ -90,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CaptureRoute: typeof CaptureRoute
+  KnowledgeRoute: typeof KnowledgeRoute
   PaperRoute: typeof PaperRoute
   ReviewRoute: typeof ReviewRoute
   PIdRoute: typeof PIdRoute
@@ -110,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/capture'
       fullPath: '/capture'
       preLoaderRoute: typeof CaptureRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge': {
+      id: '/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof KnowledgeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/paper': {
@@ -146,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CaptureRoute: CaptureRoute,
+  KnowledgeRoute: KnowledgeRoute,
   PaperRoute: PaperRoute,
   ReviewRoute: ReviewRoute,
   PIdRoute: PIdRoute,

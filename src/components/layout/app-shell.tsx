@@ -16,9 +16,9 @@ const NAV = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const reading = pathname.startsWith("/p/") || pathname.startsWith("/read/") || pathname === "/review" || pathname === "/capture";
+  const reading = pathname === "/knowledge" || pathname.startsWith("/p/") || pathname.startsWith("/read/") || pathname === "/review" || pathname === "/capture";
   const isActive = (to: string) => to === "/"
-    ? pathname === "/" || pathname.startsWith("/p/") || pathname.startsWith("/read/")
+    ? pathname === "/" || pathname === "/knowledge" || pathname.startsWith("/p/") || pathname.startsWith("/read/")
     : pathname.startsWith(to);
   const userId = useProblemStore((s) => s.userId);
   const basketCount = usePaperStore((s) => s.basket.length);

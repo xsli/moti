@@ -9,6 +9,7 @@ import { ExtraFilters } from "@/components/notebook/extra-filters";
 import { ArrangeList, SheetKindToggle } from "@/components/paper/arrange-list";
 import { PaperSteps } from "@/components/paper/paper-steps";
 import { ExamSheet } from "@/components/paper/exam-sheet";
+import { LatexPdfPreview } from "@/components/paper/latex-pdf-preview";
 import { TemplateList } from "@/components/paper/template-list";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,9 +18,9 @@ import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { resolveExamItems, rowsFromIds, type PaperRow, type SheetKind } from "@/lib/paper/layout";
-import { buildExamLatex } from "@/lib/paper/latex";
 import { buildExamPdf } from "@/lib/paper/pdf";
 import { samePaperExport, type PaperExportInput } from "@/lib/paper/export-state";
+import { coerceAnswerPlacement, type AnswerPlacement } from "@/lib/paper/answer-placement";
 import { paperFileStem, saveSamplePdf } from "@/lib/paper/sample";
 import {
   applyTemplateRows,
@@ -60,6 +61,7 @@ function PaperPage() {
   const problems = useProblemStore((s) => s.problems);
   const loadProblem = useProblemStore((s) => s.loadProblem);
   const status = useProblemStore((s) => s.status);
+  const collections = useProblemStore((s) => s.collections);
   const selectedIds = useMemo(() => ids.split(",").map((s) => s.trim()).filter(Boolean), [ids]);
   const selected = useMemo(
     () => selectedIds.map((id) => problems.find((p) => p.id === id)).filter(Boolean) as typeof problems,
@@ -74,6 +76,7 @@ function PaperPage() {
   const [rows, setRows] = useState<PaperRow[]>([]);
   const [title, setTitle] = useState(DEFAULT_EXAM_TITLE);
   const [withAnswers, setWithAnswers] = useState(false);
+  const [answerPlacement, setAnswerPlacement] = useState<AnswerPlacement>("inline");
   const [blankLines, setBlankLines] = useState<BlankLines>(DEFAULT_BLANK_LINES);
   const [blankAuto, setBlankAuto] = useState(false);
   const [sheetKind, setSheetKind] = useState<SheetKind>("exam");
@@ -84,6 +87,20 @@ function PaperPage() {
     () => resolveExamItems(rows, selected, blankLines, sheetKind),
     [rows, selected, blankLines, sheetKind],
   );
+  const warmedPaper = useRef("");
+  useEffect(() => {
+    if (step !== "arrange" || status !== "ready" || sheetKind !== "exam" || !examItems.length ||
+      selected.length !== selectedIds.length || !selected.every(p =>
+        collections.find(c => c.id === p.collectionId)?.groupName === "高考数学" && p.figures.every(f => f.image || f.svg))) return;
+    const stamp = JSON.stringify([idsKey, title, withAnswers]);
+    if (warmedPaper.current === stamp) return;
+    const timer = window.setTimeout(() => {
+      warmedPaper.current = stamp;
+      void import("@/lib/paper/gaokao-pdf-client").then(({ getGaokaoPdf }) =>
+        getGaokaoPdf(examItems, { title, withAnswers, minutes: 120, solutionSpaceCm: 5 })).catch(() => {});
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [step, status, sheetKind, examItems, selected, selectedIds, collections, idsKey, title, withAnswers]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -112,6 +129,7 @@ function PaperPage() {
       setRows(nextRows.length ? nextRows : rowsFromIds(selectedIds));
       setTitle(normalizePaperTitle(template.title, template.sheetKind));
       setWithAnswers(template.withAnswers);
+      setAnswerPlacement(coerceAnswerPlacement(template.answerPlacement));
       setBlankLines(coerceBlankLines(template.blankLines));
       setBlankAuto(coerceBlankAuto(template.blankAuto, template.blankLines));
       setSheetKind(template.sheetKind === "handout" ? "handout" : "exam");
@@ -122,6 +140,7 @@ function PaperPage() {
     setRows(rowsFromIds(selectedIds));
     setTitle(normalizePaperTitle(initialTitle, nextSheetKind));
     setWithAnswers(false);
+    setAnswerPlacement("inline");
     setBlankLines(DEFAULT_BLANK_LINES);
     setBlankAuto(false);
     setSheetKind(nextSheetKind);
@@ -157,9 +176,10 @@ function PaperPage() {
           if (kind === "exam" && title === DEFAULT_HANDOUT_TITLE) setTitle(DEFAULT_EXAM_TITLE);
         }}
         onChange={setRows}
-        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers, blankLines: nextBlank, blankAuto: nextAuto, sheetKind: nextKind }) => {
+        onApplyMeta={({ title: nextTitle, withAnswers: nextAnswers, answerPlacement: nextPlacement, blankLines: nextBlank, blankAuto: nextAuto, sheetKind: nextKind }) => {
           setTitle(nextTitle);
           setWithAnswers(nextAnswers);
+          setAnswerPlacement(nextPlacement);
           setBlankLines(nextBlank);
           setBlankAuto(nextAuto);
           setSheetKind(nextKind);
@@ -176,6 +196,7 @@ function PaperPage() {
       rows={rows}
       title={title}
       withAnswers={withAnswers}
+      answerPlacement={answerPlacement}
       blankLines={blankLines}
       blankAuto={blankAuto}
       sheetKind={sheetKind}
@@ -183,6 +204,7 @@ function PaperPage() {
       onRetryFigures={() => setFigureAttempt((n) => n + 1)}
       onTitle={setTitle}
       onAnswers={setWithAnswers}
+      onAnswerPlacement={setAnswerPlacement}
       onBlankLines={setBlankLines}
       onBlankAuto={setBlankAuto}
       onSheetKind={(kind) => {
@@ -450,6 +472,7 @@ function PaperPreview({
   rows,
   title,
   withAnswers,
+  answerPlacement,
   blankLines,
   blankAuto,
   sheetKind,
@@ -457,6 +480,7 @@ function PaperPreview({
   onRetryFigures,
   onTitle,
   onAnswers,
+  onAnswerPlacement,
   onBlankLines,
   onBlankAuto,
   onSheetKind,
@@ -466,6 +490,7 @@ function PaperPreview({
   rows: PaperRow[];
   title: string;
   withAnswers: boolean;
+  answerPlacement: AnswerPlacement;
   blankLines: BlankLines;
   blankAuto: boolean;
   sheetKind: SheetKind;
@@ -473,6 +498,7 @@ function PaperPreview({
   onRetryFigures: () => void;
   onTitle: (value: string) => void;
   onAnswers: (value: boolean) => void;
+  onAnswerPlacement: (value: AnswerPlacement) => void;
   onBlankLines: (value: BlankLines) => void;
   onBlankAuto: (value: boolean) => void;
   onSheetKind: (kind: SheetKind) => void;
@@ -486,6 +512,14 @@ function PaperPreview({
     return sheetKind === "handout" && groups.length && groups.every(g => g === groups[0]) ? groups[0] : "";
   }, [collections, items, sheetKind]);
   const [previewError, setPreviewError] = useState("");
+  const isGaokao = items.some(item => item.kind === "problem") && items.every(item => item.kind === "heading" ||
+    collections.find(c => c.id === item.problem.collectionId)?.groupName === "高考数学");
+  const [texTemplate, setTexTemplate] = useState<"auto" | "general" | "gaokao">("auto");
+  const gaokaoTex = sheetKind === "exam" && (texTemplate === "gaokao" || (texTemplate === "auto" && isGaokao));
+  const [compiledPdf, setCompiledPdf] = useState<{ key: PaperExportInput; blob: Blob; warnings: string[] } | null>(null);
+  const [compileRetry, setCompileRetry] = useState(0);
+  const [examMinutes, setExamMinutes] = useState(120);
+  const [solutionSpace, setSolutionSpace] = useState(5);
   const [tplName, setTplName] = useState(title);
   const [exporting, setExporting] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -499,35 +533,46 @@ function PaperPreview({
   }, []);
   const dateLabel = formatLoggedDateLong(Date.now());
   const [generatedKey, setGeneratedKey] = useState<PaperExportInput | null>(null);
-  const exportKey = useMemo(
-    () => ({ items, title, groupName, dateLabel, withAnswers, blankLines, blankAuto, sheetKind }),
-    [items, title, groupName, dateLabel, withAnswers, blankLines, blankAuto, sheetKind],
+  const exportKey = useMemo<PaperExportInput>(
+    () => ({ items, title, groupName, dateLabel, withAnswers, answerPlacement, blankLines, blankAuto, sheetKind,
+      template: gaokaoTex ? "gaokao" : "general", examMinutes: gaokaoTex ? examMinutes : undefined,
+      solutionSpaceCm: gaokaoTex ? solutionSpace : undefined }),
+    [items, title, groupName, dateLabel, withAnswers, answerPlacement, blankLines, blankAuto, sheetKind, gaokaoTex, examMinutes, solutionSpace],
   );
   const [readyKey, setReadyKey] = useState<object | null>(null);
   useEffect(() => setPreviewError(""), [exportKey]);
   const onPreviewReady = useCallback(() => setReadyKey(exportKey), [exportKey]);
   const figuresReady = items.every((item) => item.kind === "heading" || item.problem.figures.every((f) => f.image || f.svg));
-  const previewReady = readyKey === exportKey && figuresReady;
+  const currentCompiled = gaokaoTex && compiledPdf && samePaperExport(compiledPdf.key, exportKey) ? compiledPdf : null;
+  const previewReady = figuresReady && (gaokaoTex ? !!currentCompiled && !previewError : readyKey === exportKey);
+  const lastCompileMode = useRef("");
+  useEffect(() => {
+    if (!gaokaoTex || !figuresReady) return;
+    let cancelled = false;
+    setPreviewError("");
+    const mode = `${gaokaoTex}:${withAnswers}:${compileRetry}`;
+    const delay = mode === lastCompileMode.current ? 350 : 0;
+    lastCompileMode.current = mode;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const { getGaokaoPdf } = await import("@/lib/paper/gaokao-pdf-client");
+        if (cancelled) return;
+        const result = await getGaokaoPdf(exportKey.items, {
+          title: exportKey.title, withAnswers: exportKey.withAnswers,
+          minutes: exportKey.examMinutes, solutionSpaceCm: exportKey.solutionSpaceCm,
+        });
+        if (cancelled) return;
+        setCompiledPdf({ key: exportKey, ...result });
+      })().catch(error => { if (!cancelled) setPreviewError(error instanceof Error ? error.message : "LaTeX 排版失败"); });
+    }, delay);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [gaokaoTex, figuresReady, exportKey, compileRetry, withAnswers]);
   const exportUnchanged = useMemo(() => samePaperExport(generatedKey, exportKey), [generatedKey, exportKey]);
   const currentPdf = pdfUrl && exportUnchanged;
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
   const pdfStem = paperFileStem(withAnswers && !title.trim().endsWith("解析版") ? `${title}-解析版` : title);
   const pdfName = `${pdfStem}.pdf`;
-
-  function downloadTex() {
-    const tex = buildExamLatex(items, { title, dateLabel, withAnswers, blankLines, blankAuto, sheetKind });
-    const blob = new Blob([tex], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${paperFileStem(title)}.tex`;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-    toast.success("已下载 TeX，用 XeLaTeX 编译");
-  }
+  const inlineAnswers = withAnswers && (sheetKind !== "handout" || answerPlacement === "inline");
 
   async function blobToBase64(blob: Blob): Promise<string> {
     const buf = await blob.arrayBuffer();
@@ -544,7 +589,7 @@ function PaperPreview({
     if (!previewReady || exporting) return;
     setExporting(true);
     try {
-      const blob = await buildExamPdf([], { title, dateLabel, withAnswers });
+      const blob = gaokaoTex ? currentCompiled!.blob : await buildExamPdf([], { title, dateLabel, withAnswers });
       const url = URL.createObjectURL(blob);
       setPdfUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -612,12 +657,20 @@ function PaperPreview({
               />
               附答案与解析
             </label>
-            <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+            {sheetKind === "handout" && withAnswers ? <label className="flex items-center gap-2 text-sm">
+              答案位置
+              <select aria-label="答案位置" className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                value={answerPlacement} onChange={e => onAnswerPlacement(coerceAnswerPlacement(e.target.value))}>
+                <option value="inline">答案随题</option>
+                <option value="end">放在最后</option>
+              </select>
+            </label> : null}
+            {!gaokaoTex ? <label className={cn("flex items-center gap-2 text-sm", inlineAnswers && "opacity-40")}>
               默认留白
               <select
                 className="h-9 rounded-md border border-border bg-background px-2 text-sm"
                 value={blankLines}
-                disabled={withAnswers}
+                disabled={inlineAnswers}
                 onChange={(e) => onBlankLines(coerceBlankLines(e.target.value))}
               >
                 {BLANK_LINE_OPTIONS.map((n) => (
@@ -626,17 +679,34 @@ function PaperPreview({
                   </option>
                 ))}
               </select>
-            </label>
-            <label className={cn("flex items-center gap-2 text-sm", withAnswers && "opacity-40")}>
+            </label> : null}
+            {!gaokaoTex ? <label className={cn("flex items-center gap-2 text-sm", inlineAnswers && "opacity-40")}>
               <input
                 type="checkbox"
                 checked={blankAuto}
-                disabled={withAnswers}
+                disabled={inlineAnswers}
                 onChange={(e) => onBlankAuto(e.target.checked)}
               />
               自动留白
-            </label>
+            </label> : null}
           </div>
+        </fieldset>
+        <fieldset disabled={exporting} className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            排版模板
+            <select aria-label="排版模板" className="h-9 rounded-md border border-border bg-background px-2" value={gaokaoTex ? "gaokao" : "general"} onChange={e => { setTexTemplate(e.target.value as "general" | "gaokao"); if (e.target.value === "gaokao") onSheetKind("exam"); }}>
+              <option value="general">通用</option>
+              <option value="gaokao">高考数学 · exam-zh</option>
+            </select>
+          </label>
+          {gaokaoTex ? <>
+            <label className="flex items-center gap-2 text-sm">时长（分钟）
+              <Input aria-label="LaTeX 考试时长" type="number" min={0} max={600} step={1} className="h-9 w-20" value={examMinutes} onChange={e => setExamMinutes(Number(e.target.value))} />
+            </label>
+            <label className="flex items-center gap-2 text-sm">解答留白（cm）
+              <Input aria-label="LaTeX 解答留白" type="number" min={0} max={15} step={0.5} disabled={withAnswers} className="h-9 w-20" value={solutionSpace} onChange={e => setSolutionSpace(Number(e.target.value))} />
+            </label>
+          </> : null}
         </fieldset>
         <details className="text-sm"><summary className="w-fit cursor-pointer text-muted-foreground">高级选项</summary><div className="mt-3 flex flex-wrap items-center gap-2">
           <label htmlFor="paper-template-name" className="text-sm text-muted-foreground">模板名称</label>
@@ -653,20 +723,19 @@ function PaperPreview({
             variant="outline"
             className="justify-self-start"
             onClick={() => {
-              saveTemplate({ name: tplName, title, withAnswers, blankLines, blankAuto, sheetKind, rows });
+              saveTemplate({ name: tplName, title, withAnswers, answerPlacement, blankLines, blankAuto, sheetKind, rows });
               toast.success("模板已保存，组卷页可以打开");
             }}
           >
             保存模板
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadTex}>下载 TeX</Button>
         </div></details>
       </div>
 
       <div className="exam-preview-wrap">
         {figureLoadError && !figuresReady ? <div role="alert" className="flex items-center justify-center gap-3 py-8 text-sm">
           配图读取失败<Button variant="outline" size="sm" onClick={onRetryFigures}>重试配图</Button>
-        </div> : previewError ? <p role="alert" className="py-8 text-center">{previewError}</p> : !previewReady ? (
+        </div> : previewError ? <div role="alert" className="space-y-3 py-8 text-center"><p className="whitespace-pre-wrap">{previewError}</p>{gaokaoTex ? <Button variant="outline" onClick={() => { setCompiledPdf(null); setCompileRetry(n => n + 1); }}>重新排版</Button> : null}</div> : !previewReady ? (
           <div role="status" aria-live="polite" data-preview-loading
             className="no-print mx-auto flex min-h-64 w-full max-w-[794px] flex-col items-center justify-center gap-3 border border-border bg-white px-6 py-8 sm:min-h-80">
             <LoaderCircle aria-hidden="true" className="size-7 text-primary motion-safe:animate-spin" />
@@ -681,12 +750,17 @@ function PaperPreview({
             </div>
           </div>
         ) : null}
-        {mountPreview ? <ExamSheet
+        {currentCompiled && !previewError ? <>
+          {currentCompiled.warnings.length ? <details className="no-print mx-auto mb-4 max-w-[794px] text-sm"><summary className="cursor-pointer">{currentCompiled.warnings.length} 项内容核对提醒</summary><ul className="mt-2 list-inside list-disc">{currentCompiled.warnings.map(w => <li key={w}>{w}</li>)}</ul></details> : null}
+          <LatexPdfPreview blob={currentCompiled.blob} onError={setPreviewError} />
+        </> : null}
+        {mountPreview && !gaokaoTex ? <ExamSheet
           title={title}
           groupName={groupName}
           dateLabel={dateLabel}
           items={items}
           withAnswers={withAnswers}
+          answerPlacement={answerPlacement}
           blankLines={blankLines}
           blankAuto={blankAuto}
           sheetKind={sheetKind}

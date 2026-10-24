@@ -499,7 +499,7 @@ const ReadingQuestion = memo(function ReadingQuestion({
       <div className="space-y-4 break-words text-base">
         {content.sections.map((section, i) => (
           <div key={i}>
-            <ReadingMathText text={section.text} scrollHints className="overflow-x-auto overflow-y-hidden py-1 text-base font-normal" />
+            <ReadingMathText text={section.text} figures={figures} scrollHints className="overflow-x-auto overflow-y-hidden py-1 text-base font-normal" />
             {section.figures.map(renderFigure)}
           </div>
         ))}
@@ -516,7 +516,7 @@ const ReadingQuestion = memo(function ReadingQuestion({
           <section id={`answer-${problem.id}`} className="mt-3 border-l-2 border-emerald-700/40 bg-emerald-50/70 px-4 py-3 text-lg text-emerald-900">
             <h3 className="mb-2 text-sm font-semibold text-emerald-800">答案</h3>
             {problem.correctAnswer.trim() ? (
-              <ReadingMathText text={problem.correctAnswer} scrollHints className="overflow-x-auto overflow-y-hidden py-1" />
+              <ReadingMathText text={problem.correctAnswer} figures={figures} scrollHints className="overflow-x-auto overflow-y-hidden py-1" />
             ) : (
               <p className="text-sm text-muted-foreground">暂无答案</p>
             )}
@@ -526,7 +526,7 @@ const ReadingQuestion = memo(function ReadingQuestion({
           <section id={`analysis-${problem.id}`} className="mt-5 border-l-2 border-sky-700/40 bg-sky-50/70 px-4 py-3 text-sm text-sky-900 [&_.katex]:text-[1.05em]!">
             <h3 className="mb-2 text-sm font-semibold text-sky-800">解析</h3>
             {problem.analysis.trim() ? (
-              <ReadingMathText text={problem.analysis} tight scrollHints className="overflow-x-auto overflow-y-hidden py-1" />
+              <ReadingMathText text={problem.analysis} figures={figures} tight scrollHints className="overflow-x-auto overflow-y-hidden py-1" />
             ) : (
               <p className="text-sm text-muted-foreground">暂无解析</p>
             )}

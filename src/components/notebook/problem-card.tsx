@@ -34,7 +34,7 @@ export function ProblemCard({
   sourceLabel?: string;
 }) {
   const browse = useProblemNavigationKey();
-  const figure = problem.figures.find((f) => f.image || f.svg);
+  const figure = problem.figures.find((f) => !f.inline && (f.image || f.svg));
   const body =
     layout === "row" ? (
       <>

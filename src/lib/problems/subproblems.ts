@@ -84,6 +84,7 @@ export function stemSubproblemNumbers(stem: string): number[] {
 
 /** Keep each figure once, including figures whose original anchor no longer exists. */
 export function stemSectionsWithFigures(stem: string, figures: Figure[]) {
+  figures = figures.filter(figure => !figure.inline);
   const remaining = new Set(figures);
   const sections = splitStemSections(stem).map((section) => {
     const attached = figures.filter((figure) =>

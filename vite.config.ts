@@ -57,6 +57,14 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "127.0.0.1",
     port: 8080,
     strictPort: true,
+    // Import artifacts and database files are not application source. Watching
+    // them makes cold startup scale with tens of thousands of scanned pages.
+    watch: {
+      ignored: [
+        "**/tmp/**", "**/sample/**", "**/output/**", "**/out/**",
+        "**/.data/**", "**/.data-*/**", "**/.local-tools/**",
+      ],
+    },
   },
   preview: {
     host: "127.0.0.1",

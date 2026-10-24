@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Database, Download, FolderOpen, GripVertical, LayoutGrid, List, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { type PointerEvent, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { KnowledgeLink } from "@/components/notebook/knowledge-link";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { DateMenu, DifficultyMenu, FilterMenu, dateFilterLabel } from "@/components/notebook/filter-menu";
 import { SortableProblems } from "@/components/notebook/sortable-problems";
@@ -465,6 +466,7 @@ function Home() {
           ) : null}
           {currentCol ? (
             <div className="ml-auto flex flex-wrap items-center gap-2">
+              <KnowledgeLink scope={{ collectionId: currentCol.id }} disabled={!overviewProblems.length} />
               <Button asChild size="sm" variant="outline">
                 <Link to="/read/$id" params={{ id: currentCol.id }}>
                   阅读
@@ -591,6 +593,7 @@ function Home() {
             </button>
             <span className="text-sm text-muted-foreground">已选 {selectedCount}</span>
             <div className="ml-auto flex flex-wrap gap-2">
+              <KnowledgeLink scope={{ problemIds: idsInSourceOrder(problems, selected) }} disabled={!selectedCount} />
               <Button
                 size="sm"
                 variant="outline"

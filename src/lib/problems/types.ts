@@ -58,6 +58,8 @@ export type SourceKind = "photo" | "text" | "sample";
 
 export interface Figure {
   id: string;
+  /** Render at ![alt](figure:id) references, not in the trailing question gallery. */
+  inline?: boolean;
   title: string;
   svg: string;
   caption: string;

@@ -115,36 +115,58 @@ export async function buildExamPdf(
   _problems: Problem[],
   _options: { title: string; dateLabel: string; withAnswers: boolean },
 ): Promise<Blob> {
-  const pages = [...document.querySelectorAll(".exam-page")].filter(
-    (node): node is HTMLElement => node instanceof HTMLElement,
+  const sheets = [...document.querySelectorAll<HTMLElement>(".exam-sheet")].filter(
+    (sheet) => !sheet.closest("[data-pdf-snapshot]") && sheet.querySelector(":scope > .exam-pack > .exam-page"),
   );
-  if (!pages.length) throw new Error("请先打开试卷预览再生成 PDF");
+  if (!sheets.length) throw new Error("请先打开试卷预览再生成 PDF");
 
-  const pdf = await PDFDocument.create();
-  for (const pageEl of pages) {
-    await waitImages(pageEl);
-    const shot = await html2canvas(pageEl, {
-      backgroundColor: "#ffffff",
-      scale: PDF_RENDER_SCALE,
-      width: A4_PX,
-      height: Math.round(A4_PX * (297 / 210)),
-      windowWidth: A4_PX,
-      windowHeight: Math.round(A4_PX * (297 / 210)),
-      logging: false,
-      useCORS: true,
-      foreignObjectRendering: false,
-      onclone: (document, page) => prepareMathDelimiters(document, page, PDF_RENDER_SCALE),
-    });
-    const png = await canvasPng(shot);
-    const image = await pdf.embedPng(png);
-    const page = pdf.addPage([PAGE_W, PAGE_H]);
-    page.drawImage(image, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
-    shot.width = 1;
-    shot.height = 1;
+  // Freeze before the first await: repagination can replace every live page.
+  // Keep the sheet wrapper and its styles so the snapshot survives navigation too.
+  const snapshot = document.createElement("div");
+  snapshot.dataset.pdfSnapshot = "";
+  snapshot.setAttribute("aria-hidden", "true");
+  snapshot.inert = true;
+  snapshot.style.cssText = `position:fixed;left:-12000px;top:0;width:${A4_PX}px;pointer-events:none;`;
+  for (const sheet of sheets) {
+    const clone = sheet.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(".exam-measure").forEach((node) => node.remove());
+    snapshot.append(clone);
   }
+  document.body.append(snapshot);
 
-  const bytes = await pdf.save();
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return new Blob([copy], { type: "application/pdf" });
+  try {
+    const pages = snapshot.querySelectorAll<HTMLElement>(".exam-pack > .exam-page");
+    const pdf = await PDFDocument.create();
+    for (const pageEl of pages) {
+      await waitImages(pageEl);
+      const shot = await html2canvas(pageEl, {
+        backgroundColor: "#ffffff",
+        scale: PDF_RENDER_SCALE,
+        width: A4_PX,
+        height: Math.round(A4_PX * (297 / 210)),
+        windowWidth: A4_PX,
+        windowHeight: Math.round(A4_PX * (297 / 210)),
+        logging: false,
+        useCORS: true,
+        foreignObjectRendering: false,
+        onclone: (document, page) => prepareMathDelimiters(document, page, PDF_RENDER_SCALE),
+      });
+      try {
+        const png = await canvasPng(shot);
+        const image = await pdf.embedPng(png);
+        const page = pdf.addPage([PAGE_W, PAGE_H]);
+        page.drawImage(image, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+      } finally {
+        shot.width = 1;
+        shot.height = 1;
+      }
+    }
+
+    const bytes = await pdf.save();
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    return new Blob([copy], { type: "application/pdf" });
+  } finally {
+    snapshot.remove();
+  }
 }
