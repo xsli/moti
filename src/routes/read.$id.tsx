@@ -1,3 +1,4 @@
+import { AddPracticeRecord, PracticeRecord } from "@/components/notebook/practice-record";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ChevronDown,
@@ -28,7 +29,7 @@ import { MathText } from "@/lib/problems/math-text";
 import { sortBySourceOrder } from "@/lib/problems/order";
 import { useProblemStore } from "@/lib/problems/store";
 import { stemSectionsWithFigures } from "@/lib/problems/subproblems";
-import { MASTERY_LABEL, type Figure, type Mastery, type Problem } from "@/lib/problems/types";
+import { MASTERY_VALUES, MASTERY_LABEL, type Figure, type Mastery, type Problem } from "@/lib/problems/types";
 
 export const Route = createFileRoute("/read/$id")({ component: GroupReadingPage });
 
@@ -456,7 +457,7 @@ const ReadingQuestion = memo(function ReadingQuestion({
           className="h-9 shrink-0 rounded-md border border-border bg-surface px-1 text-sm sm:px-2"
           onChange={(e) => void updateProblem(problem.id, { mastery: e.target.value as Mastery })}
         >
-          {(["new", "reviewing", "mastered"] as Mastery[]).map((value) => (
+          {MASTERY_VALUES.map((value) => (
             <option key={value} value={value}>
               {MASTERY_LABEL[value]}
             </option>
@@ -496,6 +497,8 @@ const ReadingQuestion = memo(function ReadingQuestion({
           <TooltipContent>打开题目详情（新标签页）</TooltipContent>
         </Tooltip>
       </header>
+      <div className="mb-4"><AddPracticeRecord key={`practice-${problem.id}`} problem={problem} /></div>
+      <PracticeRecord key={problem.id} problem={problem} />
       <div className="space-y-4 break-words text-base">
         {content.sections.map((section, i) => (
           <div key={i}>

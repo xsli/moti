@@ -40,17 +40,36 @@ export const ERROR_REASON_LABEL: Record<ErrorReason, string> = {
   unknown: "待复习",
 };
 
-export type Mastery = "new" | "reviewing" | "mastered";
+// Keep `new` for old history snapshots; current readers normalize it to unpracticed.
+export type Mastery = "new" | "unpracticed" | "correcting" | "reviewing" | "mastered";
+export const MASTERY_VALUES: Mastery[] = ["unpracticed", "correcting", "reviewing", "mastered"];
+export type PracticeOutcome = "correct" | "wrong" | "hinted";
+export interface PracticeEntry {
+  id: string;
+  at: number;
+  outcome: PracticeOutcome;
+  errorReason: ErrorReason;
+  before: { mastery: Mastery; reviewCount: number; nextReviewAt: number };
+}
+export interface PracticeHistory {
+  version: 1;
+  priorUnknown: boolean;
+  entries: PracticeEntry[];
+}
 
 export const MASTERY_LABEL: Record<Mastery, string> = {
-  new: "未掌握",
-  reviewing: "巩固中",
+  new: "未练习",
+  unpracticed: "未练习",
+  correcting: "待订正",
+  reviewing: "待巩固",
   mastered: "已掌握",
 };
 
 export const MASTERY_DESCRIPTION: Record<Mastery, string> = {
-  new: "尚未记住，当前仍会进入待复习队列",
-  reviewing: "正在间隔巩固，累计记住 3 次后自动变为已掌握",
+  new: "尚未记录练习结果；更早的错误次数不作推算",
+  unpracticed: "尚未记录练习结果",
+  correcting: "手动标记为需要订正",
+  reviewing: "记录练习结果后默认进入待巩固；连续三次间隔至少一天的独立做对后自动标为已掌握",
   mastered: "已经掌握，不再进入普通待复习队列",
 };
 
@@ -89,6 +108,7 @@ export interface Problem {
   errorReason: ErrorReason;
   mastery: Mastery;
   reviewCount: number;
+  practiceHistory?: PracticeHistory;
   nextReviewAt: number;
   collectionId?: string;
   sourceBatchId?: string;

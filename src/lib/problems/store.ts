@@ -8,7 +8,7 @@ import {
   type CollectionKind,
 } from "./collections";
 import { mergeProblems } from "./coerce";
-import { nextReview } from "./review";
+import type { PracticeOutcome } from "./types";
 import type { Problem } from "./types";
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -29,7 +29,8 @@ interface ProblemState {
   ) => Promise<string>;
   updateProblem: (id: string, patch: Partial<Problem>) => Promise<void>;
   deleteProblem: (id: string) => Promise<void>;
-  markReview: (id: string, remembered: boolean) => Promise<void>;
+  markReview: (id: string, outcome: PracticeOutcome, errorReason?: Problem["errorReason"]) => Promise<void>;
+  undoReview: (id: string, entryId: string) => Promise<void>;
   addCollection: (input: { name: string; kind?: CollectionKind; groupName?: string }) => Promise<string>;
   updateCollection: (id: string, patch: Partial<Pick<Collection, "name" | "kind" | "groupName">>) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
@@ -286,11 +287,19 @@ export const useProblemStore = create<ProblemState>()((set, get) => ({
       throw error;
     }
   },
-  markReview: async (id, remembered) => {
-    const item = get().problems.find((p) => p.id === id);
-    if (!item) return;
-    const next = nextReview(item.mastery, remembered, item.reviewCount);
-    await get().updateProblem(id, next);
+  markReview: async (id, outcome, errorReason) => {
+    const { recordPracticeFn } = await import("./api");
+    const result = await recordPracticeFn({ data: { id, eventId: crypto.randomUUID(), outcome, errorReason } });
+    const problems = get().problems.map(p => p.id === id ? { ...p, ...result } : p);
+    set({ problems });
+    persist(get().userId, problems, get().collections);
+  },
+  undoReview: async (id, entryId) => {
+    const { undoPracticeFn } = await import("./api");
+    const result = await undoPracticeFn({ data: { id, entryId } });
+    const problems = get().problems.map(p => p.id === id ? { ...p, ...result } : p);
+    set({ problems });
+    persist(get().userId, problems, get().collections);
   },
   addCollection: async (input) => {
     const id = crypto.randomUUID();

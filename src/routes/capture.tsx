@@ -555,7 +555,7 @@ function CapturePage() {
       analysis: item.analysis,
       notes: "",
       errorReason: "unknown",
-      mastery: "new",
+      mastery: "unpracticed", practiceHistory: { version: 1, priorUnknown: false, entries: [] },
       reviewCount: 0,
       nextReviewAt: Date.now(),
       collectionId: collectionId || undefined,

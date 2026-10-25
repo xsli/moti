@@ -54,7 +54,7 @@ export function variantToProblem(
     title: clean.title, stem: clean.stem, correctAnswer: clean.correctAnswer, analysis: clean.analysis,
     difficulty: clean.difficulty as Problem["difficulty"], subject: source.subject,
     sourceKind: "text", figures: [], myAnswer: "", errorReason: "unknown",
-    mastery: "new", reviewCount: 0, nextReviewAt: options.now,
+    mastery: "unpracticed", practiceHistory: { version: 1, priorUnknown: false, entries: [] }, reviewCount: 0, nextReviewAt: options.now,
     collectionId: options.collectionId || undefined,
     sourceBatchId: options.batchId, sourceOrder: options.order,
     tags: [...new Set(["AI变式", ...source.tags.filter((tag) => !["例题", "习题"].includes(tag))])].slice(0, 8),

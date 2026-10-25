@@ -41,7 +41,7 @@ import { matchesDateFilter, type DateFilter } from "@/lib/problems/dates";
 import { solveProblem } from "@/lib/ai/extract";
 import { usePaperStore } from "@/lib/paper/store";
 import { selectDueProblems, useProblemStore } from "@/lib/problems/store";
-import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
+import { MASTERY_VALUES, MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 import { folderSummaries } from "@/lib/problems/folders";
 import { BookExportDialog } from "@/components/paper/book-export-dialog";
@@ -57,6 +57,8 @@ export const Route = createFileRoute("/")({
 });
 
 type Filter = "all" | "due" | Subject;
+import { matchesErrorFilter, practiceStats, type ErrorFilter } from "@/lib/problems/review";
+
 type MasteryFilter = "all" | Mastery;
 type BrowseLayout = "card" | "row";
 type CollectionIdentityPatch = Partial<Pick<Collection, "name" | "groupName" | "kind">>;
@@ -95,6 +97,8 @@ function Home() {
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [dateDay, setDateDay] = useState("");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [errorFilter, setErrorFilter] = useState<ErrorFilter>("all");
+  const [errorSort, setErrorSort] = useState("default");
   const [masteryFilter, setMasteryFilter] = useState<MasteryFilter>("all");
   const [difficultyFilter, setDifficultyFilter] = useState<number[]>([]);
   const [query, setQuery] = useState("");
@@ -130,6 +134,8 @@ function Home() {
   useEffect(() => {
     setTagFilter([]);
     setMasteryFilter("all");
+    setErrorFilter("all");
+    setErrorSort("default");
     setDifficultyFilter([]);
     setSelecting(false);
     setSelected(new Set());
@@ -160,6 +166,7 @@ function Home() {
         return false;
       }
       if (!matchesAllTags(p.tags, tagFilter)) return false;
+      if (!matchesErrorFilter(p, errorFilter)) return false;
       if (masteryFilter !== "all" && p.mastery !== masteryFilter) return false;
       if (difficultyFilter.length && !difficultyFilter.includes(p.difficulty)) return false;
       if (!matchesDateFilter(p.createdAt, dateFilter, dateDay)) return false;
@@ -169,14 +176,17 @@ function Home() {
     });
     if (g && g !== "all") return sortBySourceOrder(list);
     return list;
-  }, [problems, filter, tagFilter, masteryFilter, difficultyFilter, deferredQuery, dateFilter, dateDay, g]);
+  }, [problems, filter, tagFilter, masteryFilter, errorFilter, difficultyFilter, deferredQuery, dateFilter, dateDay, g]);
 
   const paginated = g === "all" || g === "ungrouped";
   const orderedVisible = useMemo(
-    () => g === "all" ? orderBrowseProblems(visible, collections.map((c) => c.id)) : visible,
-    [visible, collections, g],
+    () => {
+      const ordered = g === "all" ? orderBrowseProblems(visible, collections.map((c) => c.id)) : visible;
+      return errorSort === "errors" ? [...ordered].sort((a, b) => practiceStats(b).wrong - practiceStats(a).wrong) : ordered;
+    },
+    [visible, collections, g, errorSort],
   );
-  const pageScope = JSON.stringify([g, f, filter, tagFilter, masteryFilter, difficultyFilter, deferredQuery, dateFilter, dateDay]);
+  const pageScope = JSON.stringify([g, f, filter, tagFilter, masteryFilter, errorFilter, errorSort, difficultyFilter, deferredQuery, dateFilter, dateDay]);
   const pageCount = paginated ? Math.max(1, Math.ceil(orderedVisible.length / BROWSE_PAGE_SIZE)) : 1;
   const currentPage = Math.min(pagination.scope === pageScope ? pagination.page : 1, pageCount);
   const pageStart = paginated ? (currentPage - 1) * BROWSE_PAGE_SIZE : 0;
@@ -213,7 +223,7 @@ function Home() {
   ];
   const masteryOptions: { id: MasteryFilter; label: string }[] = [
     { id: "all", label: "全部状态" },
-    ...(["new", "reviewing", "mastered"] as Mastery[]).map((id) => ({ id, label: MASTERY_LABEL[id] })),
+    ...MASTERY_VALUES.map((id) => ({ id, label: MASTERY_LABEL[id] })),
   ];
 
   const selectedCount = selected.size;
@@ -689,12 +699,18 @@ function Home() {
             options={[{ id: "all", label: "全部题目" }, { id: "例题", label: "例题" }, { id: "习题", label: "习题" }]}
             onChange={(kind) => setTagFilter((tags) => [...tags.filter((tag) => tag !== "例题" && tag !== "习题"), ...(kind === "all" ? [] : [kind])])} />
           <FilterMenu
-            idleLabel="掌握状态"
+            idleLabel="当前状态"
             emptyValue="all"
             value={masteryFilter}
             options={masteryOptions}
             onChange={setMasteryFilter}
           />
+          <FilterMenu idleLabel="错误记录" emptyValue="all" value={errorFilter}
+            options={[{ id: "all", label: "全部错误记录" }, { id: "wrong", label: "错过的题（≥1次）" }, { id: "repeated", label: "反复出错（≥2次）" }, { id: "unknown", label: "历史次数未知" }]}
+            onChange={setErrorFilter} />
+          <FilterMenu idleLabel="排序" emptyValue="default" value={errorSort}
+            options={[{ id: "default", label: "原有顺序" }, { id: "errors", label: "错误次数从多到少" }]}
+            onChange={setErrorSort} />
           <ExtraFilters activeCount={Number(filter !== "all") + Number(dateFilter !== "all") + difficultyFilter.length + tagFilter.filter((tag) => tag !== "例题" && tag !== "习题").length}
             activeFilters={[
               ...(filter !== "all" ? [{ key: "subject", label: chips.find((chip) => chip.id === filter)?.label ?? filter, onRemove: () => setFilter("all") }] : []),
@@ -761,14 +777,14 @@ function Home() {
           problems={pageItems}
           navigationIds={navigationIds}
           collections={collections}
-          groupBy={g === "all" ? "collection" : "none"}
+          groupBy={g === "all" && errorSort === "default" ? "collection" : "none"}
           layout={layout}
           selecting={selecting}
           selected={selected}
           onToggle={toggle}
           onMasteryChange={(id, mastery) => void updateProblem(id, { mastery })}
           onReorder={
-            currentCol && reordering
+            currentCol && reordering && errorSort === "default"
               ? (visibleIds) => {
                   const full = idsInSourceOrder(
                     problems,
@@ -835,7 +851,7 @@ function Home() {
             <DialogDescription>把已选的 {selectedCount} 道题统一改为：</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 gap-2">
-            {(["new", "reviewing", "mastered"] as Mastery[]).map((mastery) => (
+            {MASTERY_VALUES.map((mastery) => (
               <Button
                 key={mastery}
                 type="button"

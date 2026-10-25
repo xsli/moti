@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ExternalLink, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,17 @@ const resumeSchema = z.object({
   queue: z.array(z.string()).max(50), done: z.number().int().min(0).max(50),
 });
 
+import { PracticeSummary } from "@/components/notebook/practice-record";
+import type { PracticeOutcome } from "@/lib/problems/types";
+
 export const Route = createFileRoute("/review")({ component: ReviewPage });
 
 function ReviewPage() {
   const problems = useProblemStore((s) => s.problems);
   const collections = useProblemStore((s) => s.collections);
   const status = useProblemStore((s) => s.status);
+  const pending = useRef(false);
+  const undoReview = useProblemStore(s => s.undoReview);
   const markReview = useProblemStore((s) => s.markReview);
   const loadProblem = useProblemStore((s) => s.loadProblem);
   const userId = useProblemStore((s) => s.userId);
@@ -79,16 +84,23 @@ function ReviewPage() {
 
   if (status !== "ready") return <div className="space-y-4"><Skeleton className="h-8 w-40" /><Skeleton className="h-72 rounded-lg" /></div>;
 
-  async function nextAfter(remembered: boolean) {
-    if (!current || busy) return;
+  async function nextAfter(outcome: PracticeOutcome) {
+    if (!current || pending.current) return;
+    pending.current = true;
     setBusy(true);
     try {
-      await markReview(current.id, remembered);
+      const id = current.id;
+      await markReview(id, outcome);
+      const entryId = useProblemStore.getState().problems.find(p => p.id === id)?.practiceHistory?.entries.at(-1)?.id;
+      if (entryId) toast.success("已记录本次练习", { action: { label: "撤销", onClick: () => {
+        void undoReview(id, entryId).then(() => { setQueue(q => [id, ...q.filter(v => v !== id)]); setDone(n => Math.max(0, n - 1)); setRevealed(false); })
+          .catch(error => toast.error(error instanceof Error ? error.message : "撤销失败"));
+      } } });
       setQueue((q) => q.slice(1));
       setDone((n) => n + 1);
       setRevealed(false);
     } catch { toast.error("记录失败，请重试"); }
-    finally { setBusy(false); }
+    finally { pending.current = false; setBusy(false); }
   }
 
   if (!started) return (
@@ -117,6 +129,7 @@ function ReviewPage() {
       <div className="h-1 rounded-full bg-rule" role="progressbar" aria-label="本轮进度" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><div className="h-full rounded-full bg-primary" style={{ width: `${done / total * 100}%` }} /></div>
       <article className="space-y-5">
         <div className="flex items-center justify-between gap-3"><h2 className="font-display text-lg font-semibold">{current.title}</h2><Button variant="ghost" size="icon" title="打开完整题目" aria-label="打开完整题目" asChild><Link to="/p/$id" params={{ id: current.id }}><ExternalLink /></Link></Button></div>
+        <PracticeSummary problem={current} />
         <MathText text={current.stem} figures={current.figures} />
         {current.figures.filter(figure => !figure.inline).map((figure) => <FigureFrame key={figure.id} svg={figure.svg} image={figure.image} caption={figure.caption} />)}
         {loading ? <p role="status" className="text-sm text-muted-foreground">加载完整题目…</p> : null}
@@ -126,7 +139,7 @@ function ReviewPage() {
           <section className="border-l-2 border-sky-700/40 bg-sky-50/70 p-4 text-sm text-sky-900"><h3 className="mb-2 font-semibold">解析</h3><MathText text={current.analysis || "（尚未填写）"} figures={current.figures} tight /></section>
         </> : <Button onClick={() => setRevealed(true)} disabled={loading}>查看答案与解析</Button>}
       </article>
-      {revealed ? <div className="grid grid-cols-2 gap-3"><Button variant="outline" disabled={busy} onClick={() => void nextAfter(false)}><X />还需复习</Button><Button disabled={busy} onClick={() => void nextAfter(true)}><Check />记住了</Button></div> : null}
+      {revealed ? <div className="grid gap-3 sm:grid-cols-3"><Button variant="outline" disabled={busy} onClick={() => void nextAfter("wrong")}><X />做错了</Button><Button variant="outline" disabled={busy} onClick={() => void nextAfter("hinted")}>看提示才会</Button><Button disabled={busy} onClick={() => void nextAfter("correct")}><Check />独立做对</Button></div> : null}
     </div>
   );
 }

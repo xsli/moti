@@ -30,7 +30,8 @@ test("saved variants preserve provenance but never inherit media or mastery", ()
   assert.equal(result.collectionId, "group");
   assert.equal(result.sourceImage, undefined);
   assert.deepEqual(result.figures, []);
-  assert.equal(result.mastery, "new");
+  assert.equal(result.mastery, "unpracticed");
+  assert.deepEqual(result.practiceHistory, { version: 1, priorUnknown: false, entries: [] });
   assert.equal(result.reviewCount, 0);
   assert.deepEqual(result.tags, ["AI变式", "方程"]);
   assert.match(result.notes, /\/p\/original/);

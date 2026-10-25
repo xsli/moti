@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { AddPracticeRecord, PracticeRecord } from "@/components/notebook/practice-record";
 import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, ImagePlus, LoaderCircle, MoreHorizontal, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -37,7 +38,7 @@ import { useProblemStore } from "@/lib/problems/store";
 import { sortBySourceOrder } from "@/lib/problems/order";
 import { navigationPosition, readNavigation } from "@/lib/problems/navigation";
 import {
-  MASTERY_LABEL,
+  MASTERY_VALUES, MASTERY_LABEL,
   MASTERY_DESCRIPTION,
   SUBJECT_LABEL,
   type Mastery,
@@ -220,6 +221,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </Button>
         </nav>
         <div className="flex flex-wrap gap-2">
+          <AddPracticeRecord key={`practice-${problem.id}`} problem={problem} disabled={pending > 0} />
           <KnowledgeLink key={problem.id} scope={{ problemIds: [problem.id] }} disabled={pending > 0 || !problem.stem.trim()} />
           <VariantDialog source={problem} open={variantOpen} onOpenChange={setVariantOpen} />
           <Button
@@ -273,7 +275,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
             aria-label="修改掌握程度"
             title={MASTERY_DESCRIPTION[problem.mastery]}
           >
-            {(["new", "reviewing", "mastered"] as Mastery[]).map((mastery) => (
+            {MASTERY_VALUES.map((mastery) => (
               <option key={mastery} value={mastery}>{MASTERY_LABEL[mastery]}</option>
             ))}
           </select>
@@ -361,6 +363,8 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           onSave={(analysis) => void updateProblem(problem.id, { analysis })}
         />
       </Panel>
+
+      <PracticeRecord key={problem.id} problem={problem} />
 
       {editing || (problem.notes.trim() && !/^(?:来源|出处)[：:][^\n]+$/.test(problem.notes.trim())) ? <Panel><EditableMath value={problem.notes} placeholder="笔记" header={<FieldHeading>笔记</FieldHeading>} onSave={(notes) => void updateProblem(problem.id, { notes })} /></Panel> : null}
       <details className="border-t border-border pt-4 text-sm text-muted-foreground"><summary className="cursor-pointer">来源信息</summary><div className="mt-3 space-y-3">{/^(?:来源|出处)[：:][^\n]+$/.test(problem.notes.trim()) ? <p>{problem.notes}</p> : null}<p>录入日期：{formatLoggedDateLong(problem.createdAt)}</p>{problem.sourceOrder ? <p>原题号：{problem.sourceOrder}</p> : null}{problem.sourceImage ? <img src={problem.sourceImage} alt="原题截图" loading="lazy" className="max-h-[600px] max-w-full object-contain" /> : <p>暂无原题截图</p>}</div></details>

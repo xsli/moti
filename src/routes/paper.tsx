@@ -42,7 +42,7 @@ import { idsInSourceOrder, sortBySourceOrder } from "@/lib/problems/order";
 import { useProblemStore } from "@/lib/problems/store";
 import { sortCollectionsByOrder, UNGROUPED_FOLDER } from "@/lib/problems/collections";
 import { matchesAllTags } from "@/lib/problems/tags";
-import { MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
+import { MASTERY_VALUES, MASTERY_LABEL, SUBJECT_LABEL, SUBJECTS, type Mastery, type Problem, type Subject } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/paper")({
@@ -321,7 +321,7 @@ function PaperPicker() {
   ];
   const masteryOptions: { id: "all" | Mastery; label: string }[] = [
     { id: "all", label: "全部状态" },
-    ...(["new", "reviewing", "mastered"] as Mastery[]).map((id) => ({ id, label: MASTERY_LABEL[id] })),
+    ...MASTERY_VALUES.map((id) => ({ id, label: MASTERY_LABEL[id] })),
   ];
 
   return (

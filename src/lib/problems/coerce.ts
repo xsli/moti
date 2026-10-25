@@ -1,6 +1,7 @@
 import { sanitizeSvg } from "./svg";
 import { cleanOriginalImage } from "./figure-media";
-import { coerceSubject, isErrorReason, type Figure, type Problem } from "./types";
+import { coerceSubject, isErrorReason, MASTERY_VALUES, type Mastery, type Figure, type Problem } from "./types";
+import { coercePracticeHistory } from "./review";
 
 function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
@@ -58,7 +59,7 @@ export function coerceProblem(raw: unknown): Problem | null {
     | 4
     | 5;
   const mastery =
-    item.mastery === "reviewing" || item.mastery === "mastered" ? item.mastery : "new";
+    MASTERY_VALUES.includes(item.mastery as Mastery) ? item.mastery as Mastery : "unpracticed";
   const errorReason = isErrorReason(asString(item.errorReason, "unknown"))
     ? (item.errorReason as Problem["errorReason"])
     : "unknown";
@@ -85,6 +86,7 @@ export function coerceProblem(raw: unknown): Problem | null {
     notes: asString(item.notes).slice(0, 4000),
     errorReason,
     mastery,
+    practiceHistory: coercePracticeHistory(item.practiceHistory),
     reviewCount: Math.min(999, Math.max(0, Math.round(asNumber(item.reviewCount)))),
     nextReviewAt: asNumber(item.nextReviewAt, Date.now()),
     collectionId: asString(item.collectionId).slice(0, 80) || undefined,

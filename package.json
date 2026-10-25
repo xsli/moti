@@ -15,7 +15,7 @@
     "start": "node scripts/start-local.mjs",
     "typecheck": "tsc --noEmit",
     "latex:setup": "node scripts/setup-latex.mjs",
-    "test": "node --experimental-strip-types --test src/lib/capture/hold.test.ts src/lib/paper/session.test.ts src/lib/paper/selection.test.ts src/lib/paper/book.test.ts src/lib/paper/export-state.test.ts src/lib/paper/gaokao-latex.test.ts src/lib/problems/review-session.test.ts src/lib/problems/browse.test.ts src/lib/problems/collections.test.ts src/lib/problems/tags.test.ts src/lib/problems/subproblems.test.ts src/lib/problems/navigation.test.ts src/lib/problems/folders.test.ts src/lib/problems/patch.test.ts src/lib/problems/figure-media.test.ts src/lib/problems/figure-cas.test.ts src/lib/problems/inline-figures.test.ts src/lib/ai/variants.test.ts src/lib/ai/knowledge.test.ts src/lib/ai/knowledge-pdf.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/capture/hold.test.ts src/lib/paper/session.test.ts src/lib/paper/selection.test.ts src/lib/paper/book.test.ts src/lib/paper/export-state.test.ts src/lib/paper/gaokao-latex.test.ts src/lib/problems/review.test.ts src/lib/problems/review-session.test.ts src/lib/problems/browse.test.ts src/lib/problems/collections.test.ts src/lib/problems/tags.test.ts src/lib/problems/subproblems.test.ts src/lib/problems/navigation.test.ts src/lib/problems/folders.test.ts src/lib/problems/patch.test.ts src/lib/problems/figure-media.test.ts src/lib/problems/figure-cas.test.ts src/lib/problems/inline-figures.test.ts src/lib/ai/variants.test.ts src/lib/ai/knowledge.test.ts src/lib/ai/knowledge-pdf.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

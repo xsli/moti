@@ -11,8 +11,10 @@ import {
 import { FigureFrame } from "@/components/notebook/figure-frame";
 import { MathText } from "@/lib/problems/math-text";
 import { tagsForDisplay } from "@/lib/problems/tags";
-import { MASTERY_LABEL, SUBJECT_LABEL, type Mastery, type Problem } from "@/lib/problems/types";
+import { MASTERY_VALUES, MASTERY_LABEL, SUBJECT_LABEL, type Mastery, type Problem } from "@/lib/problems/types";
 import { cn } from "@/lib/utils";
+
+import { PracticeSummary } from "./practice-record";
 
 export function ProblemCard({
   problem,
@@ -60,6 +62,7 @@ export function ProblemCard({
               </Badge>
             ) : null}
           </div>
+          <PracticeSummary problem={problem} />
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {problem.sourceOrder ? (
               <span>原题 {problem.sourceOrder}</span>
@@ -106,6 +109,7 @@ export function ProblemCard({
               </Badge>
             ) : null}
           </div>
+          <PracticeSummary problem={problem} />
           {figure ? (
             <MathText text={problem.stem} compact className="line-clamp-2 text-sm text-muted-foreground" />
           ) : null}
@@ -213,7 +217,7 @@ function MasteryMenu({ value, onChange }: { value: Mastery; onChange: (mastery: 
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-32">
-        {(["new", "reviewing", "mastered"] as Mastery[]).map((mastery) => (
+        {MASTERY_VALUES.map((mastery) => (
           <DropdownMenuItem key={mastery} onSelect={() => onChange(mastery)}>
             <span className="grid size-4 place-items-center">
               {mastery === value ? <Check className="size-3.5" /> : null}

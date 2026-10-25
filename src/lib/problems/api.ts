@@ -10,11 +10,15 @@ import { sanitizeSvg } from "./svg";
 import { cleanOriginalImage } from "./figure-media";
 import { isFlatRedrawSvg, replaceFigureMedia } from "./figure-cas";
 import {
+  MASTERY_VALUES,
+  type Mastery,
   ERROR_REASONS,
   SUBJECTS,
   type Figure,
   type Problem,
 } from "./types";
+
+import { coercePracticeHistory, recordPractice, undoPractice } from "./review";
 
 type ProblemRow = {
   id: string;
@@ -35,6 +39,7 @@ type ProblemRow = {
   error_reason: string;
   mastery: string;
   review_count: number | string;
+  practice_history_json?: string | null;
   next_review_at: number | string;
   collection_id: string | null;
   source_batch_id?: string | null;
@@ -83,6 +88,7 @@ async function ensureCollectionsSchema(): Promise<void> {
       } catch {
         /* index optional */
       }
+      await sql.query("alter table problems add column if not exists practice_history_json text");
       for (const stmt of [
         "alter table problems add column if not exists source_batch_id text",
         "alter table problems add column if not exists source_order bigint",
@@ -159,7 +165,7 @@ function mapRow(row: ProblemRow): Problem {
     | 4
     | 5;
   const mastery =
-    row.mastery === "reviewing" || row.mastery === "mastered" ? row.mastery : "new";
+    MASTERY_VALUES.includes(row.mastery as Mastery) ? row.mastery as Mastery : "unpracticed";
   const sourceKind =
     row.source_kind === "photo" || row.source_kind === "text" || row.source_kind === "sample"
       ? row.source_kind
@@ -189,6 +195,7 @@ function mapRow(row: ProblemRow): Problem {
     errorReason,
     mastery,
     reviewCount: asNumber(row.review_count),
+    practiceHistory: coercePracticeHistory(row.practice_history_json ? JSON.parse(row.practice_history_json) : undefined),
     nextReviewAt: asNumber(row.next_review_at),
     collectionId: row.collection_id || undefined,
     sourceBatchId: row.source_batch_id || undefined,
@@ -213,7 +220,7 @@ async function listForUser(userId: string): Promise<Problem[]> {
     const rows = await sql<ProblemRow>`
       select id, created_at, updated_at, source_kind, title, stem,
              figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
-             analysis, notes, error_reason, mastery, review_count, next_review_at,
+             analysis, notes, error_reason, mastery, review_count, practice_history_json, next_review_at,
              collection_id, source_batch_id, source_order
       from problems
       where user_id = ${userId}
@@ -225,7 +232,7 @@ async function listForUser(userId: string): Promise<Problem[]> {
       const rows = await sql<ProblemRow>`
         select id, created_at, updated_at, source_kind, title, stem,
                figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
-               analysis, notes, error_reason, mastery, review_count, next_review_at,
+               analysis, notes, error_reason, mastery, review_count, practice_history_json, next_review_at,
                collection_id
         from problems
         where user_id = ${userId}
@@ -236,7 +243,7 @@ async function listForUser(userId: string): Promise<Problem[]> {
       const rows = await sql<Omit<ProblemRow, "collection_id">>`
         select id, created_at, updated_at, source_kind, title, stem,
                figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
-               analysis, notes, error_reason, mastery, review_count, next_review_at
+               analysis, notes, error_reason, mastery, review_count, practice_history_json, next_review_at
         from problems
         where user_id = ${userId}
         order by updated_at desc
@@ -303,13 +310,13 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
         user_id, id, created_at, updated_at, source_kind, source_image,
         title, stem, figures_json, subject, tags_json, difficulty,
         my_answer, correct_answer, analysis, notes, error_reason,
-        mastery, review_count, next_review_at, collection_id, source_batch_id, source_order
+        mastery, review_count, practice_history_json, next_review_at, collection_id, source_batch_id, source_order
       ) values (
         ${userId}, ${p.id}, ${p.createdAt}, ${p.updatedAt}, ${p.sourceKind},
         ${p.sourceImage ?? null}, ${p.title}, ${p.stem}, ${JSON.stringify(p.figures)},
         ${p.subject}, ${JSON.stringify(p.tags)}, ${p.difficulty}, ${p.myAnswer},
         ${p.correctAnswer}, ${p.analysis}, ${p.notes}, ${p.errorReason},
-        ${p.mastery}, ${p.reviewCount}, ${p.nextReviewAt}, ${p.collectionId ?? null},
+        ${p.mastery}, ${p.reviewCount}, ${p.practiceHistory ? JSON.stringify(p.practiceHistory) : null}, ${p.nextReviewAt}, ${p.collectionId ?? null},
         ${p.sourceBatchId ?? null}, ${p.sourceOrder ?? null}
       )
       on conflict (user_id, id) do update set
@@ -329,6 +336,7 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
         error_reason = excluded.error_reason,
         mastery = excluded.mastery,
         review_count = excluded.review_count,
+        practice_history_json = coalesce(excluded.practice_history_json, problems.practice_history_json),
         next_review_at = excluded.next_review_at,
         collection_id = excluded.collection_id,
         source_batch_id = excluded.source_batch_id,
@@ -340,13 +348,13 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
         user_id, id, created_at, updated_at, source_kind, source_image,
         title, stem, figures_json, subject, tags_json, difficulty,
         my_answer, correct_answer, analysis, notes, error_reason,
-        mastery, review_count, next_review_at, collection_id
+        mastery, review_count, practice_history_json, next_review_at, collection_id
       ) values (
         ${userId}, ${p.id}, ${p.createdAt}, ${p.updatedAt}, ${p.sourceKind},
         ${p.sourceImage ?? null}, ${p.title}, ${p.stem}, ${JSON.stringify(p.figures)},
         ${p.subject}, ${JSON.stringify(p.tags)}, ${p.difficulty}, ${p.myAnswer},
         ${p.correctAnswer}, ${p.analysis}, ${p.notes}, ${p.errorReason},
-        ${p.mastery}, ${p.reviewCount}, ${p.nextReviewAt}, ${p.collectionId ?? null}
+        ${p.mastery}, ${p.reviewCount}, ${p.practiceHistory ? JSON.stringify(p.practiceHistory) : null}, ${p.nextReviewAt}, ${p.collectionId ?? null}
       )
       on conflict (user_id, id) do update set
         updated_at = excluded.updated_at,
@@ -365,6 +373,7 @@ async function upsertOne(userId: string, input: Problem): Promise<void> {
         error_reason = excluded.error_reason,
         mastery = excluded.mastery,
         review_count = excluded.review_count,
+        practice_history_json = coalesce(excluded.practice_history_json, problems.practice_history_json),
         next_review_at = excluded.next_review_at,
         collection_id = excluded.collection_id
     `;
@@ -538,6 +547,42 @@ export const patchProblemFn = createServerFn({ method: "POST" })
     return { ok: true as const, updatedAt };
   });
 
+async function changePractice(userId: string, id: string, action: (problem: Problem) => Pick<Problem, "mastery" | "reviewCount" | "nextReviewAt" | "practiceHistory">) {
+  await ensureCollectionsSchema();
+  const sql = await getSql();
+  const rows = await sql<ProblemRow>`select * from problems where user_id = ${userId} and id = ${id}`;
+  const row = rows[0];
+  if (!row) throw new Error("题目不存在");
+  const problem = mapRow(row);
+  const next = action(problem);
+  const updatedAt = Math.max(Date.now(), problem.updatedAt + 1);
+  // Compare both history and state; never overwrite a concurrent attempt/manual change.
+  const updated = await sql<{ id: string }>`
+    update problems set mastery = ${next.mastery}, review_count = ${next.reviewCount},
+      next_review_at = ${next.nextReviewAt}, practice_history_json = ${JSON.stringify(next.practiceHistory)},
+      updated_at = ${updatedAt}
+    where user_id = ${userId} and id = ${id} and updated_at = ${row.updated_at}
+      and coalesce(practice_history_json, '') = ${row.practice_history_json ?? ""}
+      and mastery = ${row.mastery}
+    returning id
+  `;
+  if (!updated.length) throw new Error("题目或练习记录刚刚发生变化，请刷新后重试");
+  return { mastery: next.mastery, reviewCount: next.reviewCount, nextReviewAt: next.nextReviewAt,
+    practiceHistory: next.practiceHistory, updatedAt };
+}
+
+export const recordPracticeFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.string().min(1).max(80), eventId: z.string().uuid(),
+    outcome: z.enum(["correct", "wrong", "hinted"]), errorReason: z.enum(ERROR_REASONS).optional() }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(({ context, data }) => changePractice(context.userId, data.id, problem =>
+    recordPractice(problem, data.outcome, data.eventId, Date.now(), data.errorReason ?? "unknown")));
+
+export const undoPracticeFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.string().min(1).max(80), entryId: z.string().min(1).max(80) }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(({ context, data }) => changePractice(context.userId, data.id, problem => undoPractice(problem, data.entryId)));
+
 // Compare-and-swap the current row. A racing figure edit causes a conflict;
 // unrelated problem fields are never written by this endpoint.
 export const updateFigureMediaFn = createServerFn({ method: "POST" })
@@ -637,7 +682,7 @@ export const getProblemFn = createServerFn({ method: "POST" })
     const rows = await sql<ProblemRow>`
       select id, created_at, updated_at, source_kind, source_image, title, stem,
              figures_json, subject, tags_json, difficulty, my_answer, correct_answer,
-             analysis, notes, error_reason, mastery, review_count, next_review_at,
+             analysis, notes, error_reason, mastery, review_count, practice_history_json, next_review_at,
              collection_id, source_batch_id, source_order
       from problems
       where user_id = ${context.userId} and id = ${data.id}
