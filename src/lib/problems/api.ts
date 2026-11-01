@@ -571,6 +571,27 @@ async function changePractice(userId: string, id: string, action: (problem: Prob
     practiceHistory: next.practiceHistory, updatedAt };
 }
 
+export const saveSolutionFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({
+    id: z.string().min(1).max(80),
+    expected: z.object({ updatedAt: z.number(), stem: z.string(), correctAnswer: z.string(), analysis: z.string() }),
+    correctAnswer: z.string().max(2000), analysis: z.string().max(8000),
+  }).parse(input))
+  .middleware([localUserMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const updatedAt = Math.max(Date.now(), data.expected.updatedAt + 1);
+    const rows = await sql<{ id: string }>`
+      update problems set correct_answer = ${data.correctAnswer}, analysis = ${data.analysis}, updated_at = ${updatedAt}
+      where user_id = ${context.userId} and id = ${data.id}
+        and updated_at = ${data.expected.updatedAt} and stem = ${data.expected.stem}
+        and correct_answer = ${data.expected.correctAnswer} and analysis = ${data.expected.analysis}
+      returning id
+    `;
+    if (!rows.length) throw new Error("题目已发生变化，请关闭后重新打开，核对最新内容再保存。");
+    return { updatedAt, correctAnswer: data.correctAnswer, analysis: data.analysis };
+  });
+
 export const recordPracticeFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.string().min(1).max(80), eventId: z.string().uuid(),
     outcome: z.enum(["correct", "wrong", "hinted"]), errorReason: z.enum(ERROR_REASONS).optional() }).parse(input))

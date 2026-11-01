@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AddPracticeRecord, PracticeRecord } from "@/components/notebook/practice-record";
+import { AnswerActions } from "@/components/notebook/answer-actions";
 import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, ImagePlus, LoaderCircle, MoreHorizontal, Pencil, Sparkles, Scissors, Star, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImagePlus, MoreHorizontal, Pencil, Scissors, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CollectionPicker } from "@/components/notebook/collection-picker";
 import { CropEditor } from "@/components/notebook/crop-editor";
@@ -27,7 +28,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { solveProblem } from "@/lib/ai/extract";
 import type { ImageBBox } from "@/lib/image/bbox";
 import { cropDataUrl } from "@/lib/image/compress";
 import { formatLoggedDateLong } from "@/lib/problems/dates";
@@ -114,8 +114,6 @@ function ProblemDetail({ problem }: { problem: Problem }) {
   const [cropAnchor, setCropAnchor] = useState(0);
   const [cropReplaceId, setCropReplaceId] = useState<string | null>(null);
   const [cropping, setCropping] = useState(false);
-  const [solving, setSolving] = useState(false);
-  const hasAnswer = Boolean(problem.correctAnswer.trim());
   const parentGroupId = problem.collectionId || "ungrouped";
   const subproblemNumbers = useMemo(() => stemSubproblemNumbers(problem.stem), [problem.stem]);
 
@@ -137,35 +135,6 @@ function ProblemDetail({ problem }: { problem: Problem }) {
     if (!latest?.figures.some((f) => f.id === next.id)) return;
     await updateProblem(problem.id, { figures: latest.figures.map((f) => f.id === next.id
       ? { ...f, image: next.image, svg: next.svg, originalImage: next.originalImage, redrawError: next.redrawError } : f) });
-  }
-
-  async function askGrok() {
-    if (!problem.stem.trim()) {
-      toast.error("题干是空的，没法解答。");
-      return;
-    }
-    setSolving(true);
-    try {
-      const result = await solveProblem({
-        data: {
-          stem: problem.stem,
-          imageDataUrl: problem.figures[0]?.originalImage || problem.figures[0]?.image || problem.sourceImage,
-        },
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      await updateProblem(problem.id, {
-        correctAnswer: result.correctAnswer,
-        analysis: result.analysis,
-      });
-      toast.success("已写入答案和解析");
-    } catch {
-      toast.error("解答中断了，请再试一次。");
-    } finally {
-      setSolving(false);
-    }
   }
 
   async function applyCrop() {
@@ -339,15 +308,7 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           renderPreview={(text) => <MathText text={text} figures={problem.figures} tight />}
           placeholder="正确答案"
           header={<FieldHeading emphasized>答案</FieldHeading>}
-          headerAction={
-            !hasAnswer ? (
-            <Button size="sm" variant="outline" onClick={() => void askGrok()} disabled={solving}>
-              {solving ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-              {solving ? "正在解答…" : "AI 解答"}
-            </Button>
-            ) : null
-          }
-          emptyText={solving ? "正在生成答案…" : undefined}
+          headerAction={<AnswerActions key={problem.id} problem={problem} disabled={pending > 0} />}
           onSave={(correctAnswer) => void updateProblem(problem.id, { correctAnswer })}
         />
       </Panel>
@@ -358,7 +319,6 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           renderPreview={(text) => <MathText text={text} figures={problem.figures} tight />}
           placeholder="解析"
           header={<FieldHeading emphasized>解析</FieldHeading>}
-          emptyText={solving ? "正在生成解析…" : undefined}
           tall
           onSave={(analysis) => void updateProblem(problem.id, { analysis })}
         />
@@ -678,9 +638,9 @@ function EditableMath({
   return (
     <div className="flex flex-col gap-2">
       {header ? (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">{header}</div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {headerAction}
             <EditToggle label={placeholder} editing={editing} onEdit={() => setEditing(true)} onSave={save} onCancel={cancel} />
           </div>

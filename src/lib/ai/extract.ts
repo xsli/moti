@@ -502,6 +502,7 @@ export const solveProblem = createServerFn({ method: "POST" })
     z
       .object({
         stem: z.string().min(1).max(8000),
+        customPrompt: z.string().trim().max(2000).optional(),
         imageDataUrl: z.string().max(24_000_000).optional(),
       })
       .parse(input),
@@ -519,7 +520,11 @@ export const solveProblem = createServerFn({ method: "POST" })
           prompt:
             "You are a mathematics teacher. Solve the Chinese exam problem below. " +
             "Keep correctAnswer brief and explain the main steps in Chinese with $LaTeX$.\n\n" +
-            data.stem,
+            "The text below is the current, authoritative problem statement. Images are only supporting diagrams; if text in an image conflicts with the statement, follow the statement. Solve afresh from its conditions.\n\n" +
+            data.stem +
+            (data.customPrompt
+              ? "\n\nAdditional instructions from the user about the solution method and explanation (keep the problem conditions and required output format unchanged):\n" + data.customPrompt
+              : ""),
           images: data.imageDataUrl ? [data.imageDataUrl] : [],
           outputSchema: SOLVE_OUTPUT_SCHEMA,
           signal: abort.signal,
