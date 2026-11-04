@@ -476,6 +476,13 @@ function Home() {
           ) : null}
           {currentCol ? (
             <div className="ml-auto flex flex-wrap items-center gap-2">
+              {currentCol.kind === "exam" ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/exam-analysis/$id" params={{ id: currentCol.id }} search={{ view: "overview" }}>
+                    分析卷子
+                  </Link>
+                </Button>
+              ) : null}
               <KnowledgeLink scope={{ collectionId: currentCol.id }} disabled={!overviewProblems.length} />
               <Button asChild size="sm" variant="outline">
                 <Link to="/read/$id" params={{ id: currentCol.id }}>

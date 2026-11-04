@@ -14,6 +14,7 @@ import { Route as CaptureRouteImport } from './routes/capture'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as PaperRouteImport } from './routes/paper'
 import { Route as ReviewRouteImport } from './routes/review'
+import { Route as ExamAnalysisIdRouteImport } from './routes/exam-analysis.$id'
 import { Route as PIdRouteImport } from './routes/p.$id'
 import { Route as ReadIdRouteImport } from './routes/read.$id'
 
@@ -42,6 +43,11 @@ const ReviewRoute = ReviewRouteImport.update({
   path: '/review',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExamAnalysisIdRoute = ExamAnalysisIdRouteImport.update({
+  id: '/exam-analysis/$id',
+  path: '/exam-analysis/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PIdRoute = PIdRouteImport.update({
   id: '/p/$id',
   path: '/p/$id',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
+  '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
+  '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/knowledge': typeof KnowledgeRoute
   '/paper': typeof PaperRoute
   '/review': typeof ReviewRoute
+  '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/paper'
     | '/review'
+    | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/paper'
     | '/review'
+    | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/paper'
     | '/review'
+    | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   KnowledgeRoute: typeof KnowledgeRoute
   PaperRoute: typeof PaperRoute
   ReviewRoute: typeof ReviewRoute
+  ExamAnalysisIdRoute: typeof ExamAnalysisIdRoute
   PIdRoute: typeof PIdRoute
   ReadIdRoute: typeof ReadIdRoute
 }
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/exam-analysis/$id': {
+      id: '/exam-analysis/$id'
+      path: '/exam-analysis/$id'
+      fullPath: '/exam-analysis/$id'
+      preLoaderRoute: typeof ExamAnalysisIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/p/$id': {
       id: '/p/$id'
       path: '/p/$id'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   KnowledgeRoute: KnowledgeRoute,
   PaperRoute: PaperRoute,
   ReviewRoute: ReviewRoute,
+  ExamAnalysisIdRoute: ExamAnalysisIdRoute,
   PIdRoute: PIdRoute,
   ReadIdRoute: ReadIdRoute,
 }
