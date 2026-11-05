@@ -17,6 +17,8 @@ import { Route as ReviewRouteImport } from './routes/review'
 import { Route as ExamAnalysisIdRouteImport } from './routes/exam-analysis.$id'
 import { Route as PIdRouteImport } from './routes/p.$id'
 import { Route as ReadIdRouteImport } from './routes/read.$id'
+import { Route as StudyPlansIndexRouteImport } from './routes/study-plans.index'
+import { Route as StudyPlansIdRouteImport } from './routes/study-plans.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -58,6 +60,16 @@ const ReadIdRoute = ReadIdRouteImport.update({
   path: '/read/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudyPlansIndexRoute = StudyPlansIndexRouteImport.update({
+  id: '/study-plans/',
+  path: '/study-plans/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudyPlansIdRoute = StudyPlansIdRouteImport.update({
+  id: '/study-plans/$id',
+  path: '/study-plans/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -68,6 +80,8 @@ export interface FileRoutesByFullPath {
   '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
+  '/study-plans/$id': typeof StudyPlansIdRoute
+  '/study-plans/': typeof StudyPlansIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +92,8 @@ export interface FileRoutesByTo {
   '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
+  '/study-plans/$id': typeof StudyPlansIdRoute
+  '/study-plans': typeof StudyPlansIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +105,8 @@ export interface FileRoutesById {
   '/exam-analysis/$id': typeof ExamAnalysisIdRoute
   '/p/$id': typeof PIdRoute
   '/read/$id': typeof ReadIdRoute
+  '/study-plans/$id': typeof StudyPlansIdRoute
+  '/study-plans/': typeof StudyPlansIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +119,8 @@ export interface FileRouteTypes {
     | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
+    | '/study-plans/$id'
+    | '/study-plans/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +131,8 @@ export interface FileRouteTypes {
     | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
+    | '/study-plans/$id'
+    | '/study-plans'
   id:
     | '__root__'
     | '/'
@@ -121,6 +143,8 @@ export interface FileRouteTypes {
     | '/exam-analysis/$id'
     | '/p/$id'
     | '/read/$id'
+    | '/study-plans/$id'
+    | '/study-plans/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +156,8 @@ export interface RootRouteChildren {
   ExamAnalysisIdRoute: typeof ExamAnalysisIdRoute
   PIdRoute: typeof PIdRoute
   ReadIdRoute: typeof ReadIdRoute
+  StudyPlansIdRoute: typeof StudyPlansIdRoute
+  StudyPlansIndexRoute: typeof StudyPlansIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -192,6 +218,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/study-plans/': {
+      id: '/study-plans/'
+      path: '/study-plans'
+      fullPath: '/study-plans/'
+      preLoaderRoute: typeof StudyPlansIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/study-plans/$id': {
+      id: '/study-plans/$id'
+      path: '/study-plans/$id'
+      fullPath: '/study-plans/$id'
+      preLoaderRoute: typeof StudyPlansIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -204,6 +244,8 @@ const rootRouteChildren: RootRouteChildren = {
   ExamAnalysisIdRoute: ExamAnalysisIdRoute,
   PIdRoute: PIdRoute,
   ReadIdRoute: ReadIdRoute,
+  StudyPlansIdRoute: StudyPlansIdRoute,
+  StudyPlansIndexRoute: StudyPlansIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

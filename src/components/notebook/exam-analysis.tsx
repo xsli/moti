@@ -37,7 +37,20 @@ import {
   type AnalysisLink,
 } from "@/lib/exam-analysis/model";
 
-export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | "read" }) {
+export function ExamAnalysisPage({
+  id,
+  view,
+  questions,
+}: {
+  id: string;
+  view: "overview" | "read";
+  questions?: string;
+}) {
+  const questionIds = useMemo(
+    () => new Set((questions || "").split(",").filter(Boolean)),
+    [questions],
+  );
+  const scoped = questionIds.size > 0;
   const problems = useProblemStore((s) => s.problems),
     collections = useProblemStore((s) => s.collections),
     status = useProblemStore((s) => s.status);
@@ -51,7 +64,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
     [error, setError] = useState("");
   const [stale, setStale] = useState<string[]>([]),
     [scopeChanged, setScopeChanged] = useState(false),
-    [selectedOnly, setSelectedOnly] = useState(true),
+    [selectedOnly, setSelectedOnly] = useState(!scoped),
     [relation, setRelation] = useState("all"),
     [chapter, setChapter] = useState("all"),
     [answers, setAnswers] = useState(false),
@@ -120,6 +133,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
               ...r,
               links: r.links.filter(
                 (l) =>
+                  (!scoped || questionIds.has(r.problemId)) &&
                   (relation === "all" || l.relation === relation) &&
                   (chapter === "all" || ps.get(l.problemId)?.collectionId === chapter),
               ),
@@ -127,7 +141,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
             selectedOnly,
           )
         : [],
-    [report, relation, chapter, ps, selectedOnly],
+    [report, relation, chapter, ps, selectedOnly, scoped, questionIds],
   );
   const source = (pid: string) => {
     const p = ps.get(pid),
@@ -267,13 +281,13 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
       </header>
       <div className="sticky top-14 z-20 flex flex-wrap gap-2 border-y border-border bg-surface py-3 sm:top-16">
         <Button asChild variant={view === "overview" ? "default" : "outline"}>
-          <Link to="/exam-analysis/$id" params={{ id }} search={{ view: "overview" }}>
+          <Link to="/exam-analysis/$id" params={{ id }} search={{ view: "overview", questions }}>
             <ChartNoAxesCombined className="size-4" />
             分布与关联
           </Link>
         </Button>
         <Button asChild variant={view === "read" ? "default" : "outline"}>
-          <Link to="/exam-analysis/$id" params={{ id }} search={{ view: "read" }}>
+          <Link to="/exam-analysis/$id" params={{ id }} search={{ view: "read", questions }}>
             <BookOpen className="size-4" />
             整体阅读
           </Link>
@@ -284,7 +298,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
           onClick={() => void generate()}
         >
           <RefreshCw className="size-4" />
-          {report ? "重新分析" : "开始分析"}
+          {report ? (scoped ? "重新分析整卷" : "重新分析") : "开始分析"}
         </Button>
         <Button
           variant="outline"
@@ -295,7 +309,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
           }}
         >
           <Download className="size-4" />
-          导出 PDF
+          {scoped ? "导出整卷 PDF" : "导出 PDF"}
         </Button>
       </div>
       {busy ? (
@@ -341,7 +355,7 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
       ) : null}
       {report ? (
         <>
-          {view === "overview" ? (
+          {view === "overview" && !scoped ? (
             <>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 {[
@@ -444,6 +458,26 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
             </>
           ) : null}
           <section id="analysis-links" className="scroll-mt-36 space-y-4">
+            {scoped && (
+              <div className="rounded-lg bg-secondary/50 p-3 text-sm">
+                本批：原卷第{" "}
+                {report.rows
+                  .flatMap((r, i) => (questionIds.has(r.problemId) ? [i + 1] : []))
+                  .join("、")}{" "}
+                题 · 包含全部关联题与补充训练
+                <Link
+                  className="ml-3 text-primary underline"
+                  to="/exam-analysis/$id"
+                  params={{ id }}
+                  search={{ view, questions: undefined }}
+                >
+                  查看整卷
+                </Link>
+                {!report.rows.some((r) => questionIds.has(r.problemId)) && (
+                  <p>对应原题已不在当前分析中，请重新核对任务范围。</p>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold">
                 {view === "read" ? "原题与关联题阅读" : "逐题关联"}
@@ -476,14 +510,16 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
               </select>
               {view === "read" ? (
                 <>
-                  <label className="text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedOnly}
-                      onChange={(e) => setSelectedOnly(e.target.checked)}
-                    />{" "}
-                    只读推荐练习
-                  </label>
+                  {!scoped && (
+                    <label className="text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedOnly}
+                        onChange={(e) => setSelectedOnly(e.target.checked)}
+                      />{" "}
+                      只读推荐练习
+                    </label>
+                  )}
                   <label className="text-sm">
                     <input
                       type="checkbox"
@@ -513,14 +549,18 @@ export function ExamAnalysisPage({ id, view }: { id: string; view: "overview" | 
                 }}
               >
                 <option value="">跳转原卷题号</option>
-                {report.rows.map((r, i) => (
-                  <option key={r.problemId} value={i}>
-                    {i + 1} · {r.topic || ps.get(r.problemId)?.title}
-                  </option>
-                ))}
+                {report.rows.map(
+                  (r, i) =>
+                    (!scoped || questionIds.has(r.problemId)) && (
+                      <option key={r.problemId} value={i}>
+                        {i + 1} · {r.topic || ps.get(r.problemId)?.title}
+                      </option>
+                    ),
+                )}
               </select>
             </div>
             {report.rows.map((row, i) => {
+              if (scoped && !questionIds.has(row.problemId)) return null;
               const collapsed = collapsedRows.has(row.problemId);
               const shown =
                 view === "read"

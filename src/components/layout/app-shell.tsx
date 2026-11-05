@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BookOpen, Camera, FileText, RotateCcw } from "lucide-react";
+import { BookOpen, Camera, FileText, RotateCcw, Target } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Logo } from "@/components/brand/logo";
 import { LOCAL_USER_ID } from "@/lib/local-user";
@@ -12,14 +12,24 @@ const NAV = [
   { to: "/capture", label: "录题", icon: Camera },
   { to: "/review", label: "复习", icon: RotateCcw },
   { to: "/paper", label: "组卷", icon: FileText },
+  { to: "/study-plans", label: "备考定制", icon: Target },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const reading = pathname === "/knowledge" || pathname.startsWith("/p/") || pathname.startsWith("/read/") || pathname === "/review" || pathname === "/capture";
-  const isActive = (to: string) => to === "/"
-    ? pathname === "/" || pathname === "/knowledge" || pathname.startsWith("/p/") || pathname.startsWith("/read/")
-    : pathname.startsWith(to);
+  const reading =
+    pathname === "/knowledge" ||
+    pathname.startsWith("/p/") ||
+    pathname.startsWith("/read/") ||
+    pathname === "/review" ||
+    pathname === "/capture";
+  const isActive = (to: string) =>
+    to === "/"
+      ? pathname === "/" ||
+        pathname === "/knowledge" ||
+        pathname.startsWith("/p/") ||
+        pathname.startsWith("/read/")
+      : pathname.startsWith(to);
   const userId = useProblemStore((s) => s.userId);
   const basketCount = usePaperStore((s) => s.basket.length);
   const hydratePaper = usePaperStore((s) => s.hydrate);
@@ -46,7 +56,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "relative rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                      active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary/70 hover:text-fg",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-fg",
                     )}
                   >
                     {item.label}
@@ -62,9 +74,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className={cn("mx-auto w-full px-4 pb-28 pt-5 sm:px-6 sm:pt-7 md:pb-12 print:max-w-none print:p-0", reading ? "max-w-[850px]" : "max-w-[1200px]")}>{children}</main>
+      <main
+        className={cn(
+          "mx-auto w-full px-4 pb-28 pt-5 sm:px-6 sm:pt-7 md:pb-12 print:max-w-none print:p-0",
+          reading ? "max-w-[850px]" : "max-w-[1200px]",
+        )}
+      >
+        {children}
+      </main>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden print:hidden">
-        <ul className="grid grid-cols-4">
+        <ul className="grid grid-cols-5">
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.to);
